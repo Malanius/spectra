@@ -16,17 +16,41 @@ pub fn max_bars(cfg: &Config, width: u16) -> usize {
 }
 
 pub fn draw(frame: &mut Frame, app: &App) {
-    let rows = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Min(4),
-        Constraint::Length(1),
-    ])
-    .split(frame.area());
+    let viz_area = if app.cfg.hud {
+        let rows = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Min(4),
+            Constraint::Length(1),
+        ])
+        .split(frame.area());
+        draw_header(frame, rows[0], app);
+        draw_footer(frame, rows[2], app);
+        rows[1]
+    } else {
+        frame.area()
+    };
 
-    draw_header(frame, rows[0], app);
     app.viz()
-        .render(rows[1], frame.buffer_mut(), app.theme, &app.cfg);
-    draw_footer(frame, rows[2], app);
+        .render(viz_area, frame.buffer_mut(), app.theme, &app.cfg);
+
+    // With the HUD hidden the status line has no home — float it over the
+    // visualization so feedback stays visible.
+    if !app.cfg.hud {
+        if let Some(msg) = app.status() {
+            let area = frame.area();
+            let style = Style::default()
+                .fg(app.theme.peak_color())
+                .add_modifier(Modifier::BOLD);
+            let buf = frame.buffer_mut();
+            for (i, ch) in msg.chars().enumerate() {
+                let x = area.x + 1 + i as u16;
+                if x >= area.x + area.width {
+                    break;
+                }
+                buf[(x, area.y)].set_char(ch).set_style(style);
+            }
+        }
+    }
 
     match &app.popup {
         Popup::Help => draw_help(frame, app),
@@ -98,6 +122,8 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
         Span::styled(" theme  ", txt),
         Span::styled("d", key),
         Span::styled(" device  ", txt),
+        Span::styled("f", key),
+        Span::styled(" focus  ", txt),
         Span::styled("?", key),
         Span::styled(" help  ", txt),
         Span::styled("q", key),
@@ -118,9 +144,10 @@ fn draw_help(frame: &mut Frame, app: &App) {
     let key = Style::default()
         .fg(theme.accent())
         .add_modifier(Modifier::BOLD);
-    let rows: [(&str, &str); 11] = [
+    let rows: [(&str, &str); 12] = [
         ("v / V", "next / previous visualization style"),
         ("m", "visualization style menu"),
+        ("f", "hide/show header & footer"),
         ("↑ / ↓", "input gain up / down"),
         ("+ / -", "more / fewer bars"),
         ("s", "cycle smoothing (fast/medium/smooth)"),

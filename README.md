@@ -84,6 +84,7 @@ persistence, CLI validation) picks them up automatically.
 | `a`     | toggle auto gain (AGC)                    |
 | `t`     | cycle color theme                         |
 | `d`     | pick capture device                       |
+| `f`     | hide/show header & footer (focus mode)    |
 | `?`     | help                                      |
 | `q`     | quit (settings are saved)                 |
 

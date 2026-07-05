@@ -319,6 +319,14 @@ impl App {
                 }
                 Err(e) => self.set_status(format!("device list failed: {e}")),
             },
+            KeyCode::Char('f') => {
+                self.cfg.hud = !self.cfg.hud;
+                self.set_status(if self.cfg.hud {
+                    "header & footer shown".into()
+                } else {
+                    "header & footer hidden — f restores".into()
+                });
+            }
             KeyCode::Char('h') | KeyCode::Char('?') => self.popup = Popup::Help,
             _ => {}
         }

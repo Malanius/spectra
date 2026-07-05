@@ -25,6 +25,8 @@ pub struct Config {
     pub smoothing: usize,
     /// Show falling peak-hold caps.
     pub peaks: bool,
+    /// Show the header and footer bars (toggled with 'f').
+    pub hud: bool,
     /// PipeWire node.name to capture from; None = default output monitor.
     pub device: Option<String>,
     /// Whether the chosen device is a sink (capture its monitor) or a source.
@@ -48,6 +50,7 @@ impl Default for Config {
             auto_gain: true,
             smoothing: 1,
             peaks: true,
+            hud: true,
             device: None,
             device_is_sink: true,
             fft_size: 2048,
