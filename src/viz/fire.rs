@@ -65,14 +65,16 @@ impl Visualizer for Fire {
             let (i, f) = (pos as usize, pos.fract());
             let band = bars[i] * (1.0 - f) + bars[(i + 1).min(BANDS - 1)] * f;
             let flicker = 0.75 + 0.5 * self.rng.f32();
-            self.heat[x] = (band * 1.7 * flicker).clamp(0.0, 1.25);
+            self.heat[x] = (band * 1.25 * flicker).clamp(0.0, 1.15);
         }
 
         // Propagate upward: each pixel pulls from the three below it and
         // cools; low overall level cools faster so the fire dies down.
         // Cooling per row decides flame height: heat ~1 travels ~1/cool of
         // the H rows, so keep it small.
-        let cool_base = 0.006 + 0.035 * (1.0 - (self.level * 1.4).min(1.0));
+        // Linear in level so flame height keeps tracking dynamics instead of
+        // saturating at full screen on ordinary program material.
+        let cool_base = 0.010 + 0.040 * (1.0 - self.level);
         for y in (1..H).rev() {
             for x in 0..W {
                 let below = &self.heat[(y - 1) * W..y * W];

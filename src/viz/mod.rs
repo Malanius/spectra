@@ -121,17 +121,22 @@ impl Rng {
 }
 
 /// Detects sudden jumps of a level above its recent average — used to turn
-/// bass energy into discrete "beat" events.
+/// bass energy into discrete "beat" events. `ratio` is how far above the
+/// running average a level must jump; `floor` is the minimum absolute level.
 pub(crate) struct OnsetDetector {
     ema: f32,
     cooldown: f32,
+    ratio: f32,
+    floor: f32,
 }
 
 impl OnsetDetector {
-    pub fn new() -> Self {
+    pub fn new(ratio: f32, floor: f32) -> Self {
         Self {
             ema: 0.0,
             cooldown: 0.0,
+            ratio,
+            floor,
         }
     }
 
@@ -140,7 +145,8 @@ impl OnsetDetector {
         let ema = self.ema;
         self.ema += (level - ema) * (dt / 0.6).min(1.0);
         self.cooldown -= dt;
-        if !silent && level > 0.25 && level > ema * 1.3 + 0.04 && self.cooldown <= 0.0 {
+        if !silent && level > self.floor && level > ema * self.ratio + 0.03 && self.cooldown <= 0.0
+        {
             self.cooldown = 0.13;
             Some(level)
         } else {

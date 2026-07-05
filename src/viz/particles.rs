@@ -32,7 +32,7 @@ struct Particle {
 }
 
 const BANDS: usize = 24;
-const MAX_PARTICLES: usize = 220;
+const MAX_PARTICLES: usize = 320;
 
 impl Particles {
     pub fn new(cfg: &Config) -> Self {
@@ -44,10 +44,10 @@ impl Particles {
                 cfg.freq_max,
                 cfg.gain_db,
                 cfg.auto_gain,
-                cfg.smoothing,
+                0, // always fast attack: onsets vanish on smoothed bars
             ),
             particles: Vec::new(),
-            onset: OnsetDetector::new(),
+            onset: OnsetDetector::new(1.12, 0.12),
             rng: Rng(0xa5a5_1234_dead_beef),
             drizzle: 0.0,
         }
@@ -73,7 +73,8 @@ impl Visualizer for Particles {
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, _max_bars: usize, dt: f32) {
         self.analyzer.gain_db = cfg.gain_db;
         self.analyzer.auto_gain = cfg.auto_gain;
-        self.analyzer.smoothing = cfg.smoothing;
+        // Deliberately not following cfg.smoothing: beat detection needs the
+        // raw transients that the smooth presets are designed to hide.
         self.analyzer.update(frame.mono, frame.rate, dt, frame.silent);
         let bars = self.analyzer.bars();
         let n = bars.len();
@@ -83,12 +84,12 @@ impl Visualizer for Particles {
 
         // Beat → radial burst from the center, bass hues, speed by energy.
         if let Some(strength) = self.onset.feed(bass, frame.silent, dt) {
-            let count = 10 + (strength * 14.0) as usize;
+            let count = 16 + (strength * 22.0) as usize;
             for _ in 0..count {
                 let ang = self.rng.f32() * std::f32::consts::TAU;
-                let speed = (0.12 + 0.45 * strength) * (0.5 + self.rng.f32());
+                let speed = (0.16 + 0.5 * strength) * (0.5 + self.rng.f32());
                 let hue = 0.55 + 0.45 * self.rng.f32();
-                let life = 0.9 + self.rng.f32() * 0.9;
+                let life = 1.0 + self.rng.f32() * 1.0;
                 let p = Particle {
                     x: 0.5,
                     y: 0.5,
@@ -98,31 +99,31 @@ impl Visualizer for Particles {
                     age: 0.0,
                     life,
                     hue,
-                    strength: (0.6 + strength).min(1.5),
+                    strength: (0.85 + strength).min(1.6),
                 };
                 self.spawn(p);
             }
         }
 
-        // Treble drizzle: slow drifters anywhere on screen, cool hues.
+        // Drizzle: activity anywhere in the spectrum keeps stars drifting.
         if !frame.silent {
-            self.drizzle += dt * (10.0 * treble + 2.0 * bass);
+            self.drizzle += dt * (16.0 * treble + 6.0 * bass);
         }
         while self.drizzle >= 1.0 {
             self.drizzle -= 1.0;
             let (x, y) = (self.rng.f32(), self.rng.f32());
             let ang = self.rng.f32() * std::f32::consts::TAU;
-            let life = 0.7 + self.rng.f32() * 0.8;
+            let life = 0.8 + self.rng.f32() * 0.9;
             let hue = 0.15 + 0.35 * self.rng.f32();
             let p = Particle {
                 x,
                 y,
-                vx: ang.cos() * 0.03,
-                vy: ang.sin() * 0.02 - 0.015,
+                vx: ang.cos() * 0.04,
+                vy: ang.sin() * 0.025 - 0.02,
                 age: 0.0,
                 life,
                 hue,
-                strength: 0.35 + 0.4 * treble,
+                strength: 0.55 + 0.5 * treble,
             };
             self.spawn(p);
         }
