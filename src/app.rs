@@ -207,8 +207,13 @@ impl App {
             KeyCode::Char('c') if mods.contains(KeyModifiers::CONTROL) => {
                 self.should_quit = true
             }
-            KeyCode::Char('v') => {
-                self.viz_idx = (self.viz_idx + 1) % self.visualizers.len();
+            KeyCode::Char('v') | KeyCode::Char('V') => {
+                let n = self.visualizers.len();
+                self.viz_idx = if code == KeyCode::Char('v') {
+                    (self.viz_idx + 1) % n
+                } else {
+                    (self.viz_idx + n - 1) % n
+                };
                 self.cfg.visualizer = self.viz().id().to_string();
                 self.set_status(format!("style: {}", self.viz().name()));
             }

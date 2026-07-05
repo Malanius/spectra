@@ -2,7 +2,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 
-use super::{AudioFrame, Visualizer};
+use super::{AudioFrame, OnsetDetector, Rng, Visualizer};
 use crate::config::Config;
 use crate::dsp::Analyzer;
 use crate::theme::ThemeId;
@@ -14,10 +14,9 @@ use crate::theme::ThemeId;
 pub struct Ripples {
     analyzer: Analyzer,
     ripples: Vec<Ripple>,
-    bass_ema: f32,
-    onset_cooldown: f32,
+    onset: OnsetDetector,
     rain_acc: f32,
-    rng: u64,
+    rng: Rng,
 }
 
 struct Ripple {
@@ -53,19 +52,10 @@ impl Ripples {
                 cfg.smoothing,
             ),
             ripples: Vec::new(),
-            bass_ema: 0.0,
-            onset_cooldown: 0.0,
+            onset: OnsetDetector::new(),
             rain_acc: 0.0,
-            rng: 0x9e3779b97f4a7c15,
+            rng: Rng(0x9e3779b97f4a7c15),
         }
-    }
-
-    /// xorshift64* — deterministic, dependency-free random in [0,1).
-    fn rand(&mut self) -> f32 {
-        self.rng ^= self.rng << 13;
-        self.rng ^= self.rng >> 7;
-        self.rng ^= self.rng << 17;
-        ((self.rng.wrapping_mul(0x2545f4914f6cdd1d) >> 40) as f32) / (1u64 << 24) as f32
     }
 
     fn spawn(&mut self, ox: f32, oy: f32, strength: f32) {
@@ -105,18 +95,13 @@ impl Visualizer for Ripples {
 
         // Bass onsets: a jump well above the recent average makes a big
         // ripple somewhere near the middle of the lake.
-        let ema = self.bass_ema;
-        self.bass_ema += (bass - ema) * (dt / 0.6).min(1.0);
-        self.onset_cooldown -= dt;
-        if !frame.silent && bass > 0.25 && bass > ema * 1.3 + 0.04 && self.onset_cooldown <= 0.0
-        {
-            let (jx, jy) = (self.rand(), self.rand());
+        if let Some(strength) = self.onset.feed(bass, frame.silent, dt) {
+            let (jx, jy) = (self.rng.f32(), self.rng.f32());
             self.spawn(
                 0.5 + (jx - 0.5) * 0.4,
                 0.5 + (jy - 0.5) * 0.4,
-                0.7 + bass,
+                0.7 + strength,
             );
-            self.onset_cooldown = 0.13;
         }
 
         // Rain: overall activity drizzles small ripples at random spots.
@@ -125,7 +110,7 @@ impl Visualizer for Ripples {
         }
         while self.rain_acc >= 1.0 {
             self.rain_acc -= 1.0;
-            let (x, y, s) = (self.rand(), self.rand(), self.rand());
+            let (x, y, s) = (self.rng.f32(), self.rng.f32(), self.rng.f32());
             self.spawn(
                 0.06 + x * 0.88,
                 0.06 + y * 0.88,

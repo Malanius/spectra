@@ -33,12 +33,12 @@ By default it captures the monitor of your default audio output. Options:
 -l, --list-devices     list sinks (monitors) and sources, then exit
 -t, --theme <THEME>    terminal | classic | catppuccin | gruvbox | nord | tokyo-night
 -b, --bars <N>         number of frequency bars (8–96)
--s, --style <STYLE>    bars | mirror | ripples
+-s, --style <STYLE>    see the style list below
 ```
 
 ## Visualization styles
 
-Cycle with `v` at runtime:
+Cycle forward with `v`, backward with `V`:
 
 - **bars** — classic hi-fi spectrum: vertical bars, falling peak-hold caps,
   frequency axis.
@@ -48,6 +48,24 @@ Cycle with `v` at runtime:
   center, treble activity drizzles small ones; expanding wave packets
   interfere, crests take the hot end of the theme gradient, troughs the cool
   end.
+- **spectrogram** — scrolling waterfall: frequency left→right, time flowing
+  upward, intensity as color; two time slices per row via half-blocks.
+- **scope** — oscilloscope: the raw waveform as a braille trace with a
+  rising-edge trigger; splits into stereo dual-trace when the window is tall.
+- **vector** — vectorscope / goniometer with phosphor persistence: mono
+  collapses to the vertical M axis, wide stereo blooms into a cloud.
+- **vu** — two analog VU meters: braille needle on an arc scale with spring
+  ballistics, dB readout, and latching peak LEDs.
+- **fire** — demoscene fire stoked by the spectrum: bass roars on the left,
+  treble sparks on the right; dies down to embers in silence.
+- **particles** — starfield: beats fire radial bursts from the center,
+  treble drizzles slow drifters.
+- **matrix** — matrix rain where each column is a frequency band: its
+  energy drives the fall speed, glyph churn, and glow.
+- **radial** — the spectrum wrapped around a pulsing iris, bass at the top
+  sweeping symmetrically down to treble.
+- **skyline** — strip-chart of the loudness envelope scrolling right to
+  left, with a bright peak ridge above the RMS silhouette.
 
 New styles implement the `Visualizer` trait in `src/viz/` and are registered
 in `viz::create_all` and `viz::IDS` — everything else (cycling, config
@@ -57,7 +75,7 @@ persistence, CLI validation) picks them up automatically.
 
 | Key     | Action                                    |
 | ------- | ----------------------------------------- |
-| `v`     | cycle visualization style                 |
+| `v` `V` | next / previous visualization style       |
 | `↑` `↓` | input gain up / down                      |
 | `+` `-` | more / fewer bars                         |
 | `s`     | cycle smoothing (fast / medium / smooth)  |

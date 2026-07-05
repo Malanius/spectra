@@ -116,7 +116,7 @@ fn draw_help(frame: &mut Frame, app: &App) {
         .fg(theme.accent())
         .add_modifier(Modifier::BOLD);
     let rows: [(&str, &str); 10] = [
-        ("v", "cycle visualization style"),
+        ("v / V", "next / previous visualization style"),
         ("↑ / ↓", "input gain up / down"),
         ("+ / -", "more / fewer bars"),
         ("s", "cycle smoothing (fast/medium/smooth)"),
