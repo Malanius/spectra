@@ -1,0 +1,19 @@
+[package]
+name = "spectra"
+version = "0.1.0"
+edition = "2021"
+description = "Retro hi-fi spectrum analyzer for the terminal, powered by PipeWire"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+dirs = "6"
+pipewire = { git = "https://gitlab.freedesktop.org/pipewire/pipewire-rs" }
+ratatui = "0.29"
+realfft = "3"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+[profile.release]
+lto = true
+strip = true

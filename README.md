@@ -1,0 +1,73 @@
+# spectra
+
+A retro hi-fi spectrum analyzer for the terminal. Captures whatever is
+currently playing on your system via native PipeWire and renders classic
+bars with falling peak-hold caps, log-spaced from 30 Hz to 16 kHz.
+
+```
+                    ▂
+        ▄     ▁    █
+   ▂   █ █   █    █ ▄
+  ▄█ ▄ █ █ ▂ █ ▄  █ █ ▁
+ ▆██ █ █ █ █ █ █ ▄█ █ █
+ ███▆█▆█▆█▆█▆█▆█▆██▆█▆█
+  50  200  1k  4k  16k
+```
+
+## Requirements
+
+- PipeWire (with `libpipewire-0.3` headers) and clang at build time
+- A terminal with Unicode block characters; true color for the RGB themes
+
+## Build & run
+
+```sh
+cargo build --release
+./target/release/spectra
+```
+
+By default it captures the monitor of your default audio output. Options:
+
+```
+-d, --device <QUERY>   capture a specific device (matches name/description)
+-l, --list-devices     list sinks (monitors) and sources, then exit
+-t, --theme <THEME>    terminal | classic | catppuccin | gruvbox | nord | tokyo-night
+-b, --bars <N>         number of frequency bars (8–96)
+```
+
+## Keys
+
+| Key     | Action                                    |
+| ------- | ----------------------------------------- |
+| `↑` `↓` | input gain up / down                      |
+| `+` `-` | more / fewer bars                         |
+| `s`     | cycle smoothing (fast / medium / smooth)  |
+| `p`     | toggle peak-hold caps                     |
+| `a`     | toggle auto gain (AGC)                    |
+| `t`     | cycle color theme                         |
+| `d`     | pick capture device                       |
+| `?`     | help                                      |
+| `q`     | quit (settings are saved)                 |
+
+## Themes
+
+`terminal` (default) maps the classic green/yellow/red layout onto your
+terminal's ANSI palette so it follows whatever theme the terminal uses.
+`classic` is the authentic true-color hi-fi gradient; `catppuccin` (Mocha),
+`gruvbox`, `nord`, and `tokyo-night` match the popular color schemes.
+
+## Configuration
+
+Settings (theme, bars, gain, smoothing, device, …) are saved to
+`~/.config/spectra/config.toml` on exit and restored on the next start.
+`fft_size`, `freq_min`, and `freq_max` can be tuned there as well.
+
+## How it works
+
+A dedicated thread runs a PipeWire capture stream (`stream.capture.sink`)
+that downmixes float samples to mono into a ring buffer. The UI thread runs
+at ~60 fps: it takes the latest 2048-sample window, applies a Hann window
+and a real FFT, folds the magnitudes into log-spaced bands, converts them to
+dB over a 64 dB display range, and animates bars (asymmetric attack/decay
+smoothing) plus gravity-driven peak caps. Auto gain tracks the loudest
+recent band and slides the display ceiling so any source fills the meter.
