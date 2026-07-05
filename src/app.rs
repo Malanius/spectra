@@ -8,6 +8,7 @@ use ratatui::DefaultTerminal;
 use crate::audio::{enumerate_devices, AudioDevice, Capture, CaptureTarget};
 use crate::config::Config;
 use crate::dsp::SMOOTHING_PRESETS;
+use crate::nowplaying::{self, NowPlaying};
 use crate::theme::ThemeId;
 use crate::ui;
 use crate::viz::{self, AudioFrame, Visualizer};
@@ -40,6 +41,7 @@ pub struct App {
     pub max_bars: usize,
     visualizers: Vec<Box<dyn Visualizer>>,
     viz_idx: usize,
+    now_playing: nowplaying::Shared,
     status: Option<(String, Instant)>,
     mono_buf: Vec<f32>,
     left_buf: Vec<f32>,
@@ -67,6 +69,7 @@ impl App {
             max_bars: 96,
             visualizers,
             viz_idx,
+            now_playing: nowplaying::spawn_poller(),
             status: None,
             mono_buf: vec![0.0; fft_size],
             left_buf: vec![0.0; fft_size],
@@ -96,6 +99,10 @@ impl App {
 
     pub fn viz_index(&self) -> usize {
         self.viz_idx
+    }
+
+    pub fn now_playing(&self) -> Option<NowPlaying> {
+        self.now_playing.lock().unwrap().clone()
     }
 
     pub fn style_names(&self) -> Vec<&'static str> {

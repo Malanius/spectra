@@ -17,6 +17,7 @@ bars with falling peak-hold caps, log-spaced from 30 Hz to 16 kHz.
 ## Requirements
 
 - PipeWire (with `libpipewire-0.3` headers) and clang at build time
+- D-Bus (`dbus-1` headers) for the MPRIS now-playing line
 - A terminal with Unicode block characters; true color for the RGB themes
 
 ## Build & run
@@ -97,6 +98,13 @@ persistence, CLI validation) picks them up automatically.
 terminal's ANSI palette so it follows whatever theme the terminal uses.
 `classic` is the authentic true-color hi-fi gradient; `catppuccin` (Mocha),
 `gruvbox`, `nord`, and `tokyo-night` match the popular color schemes.
+
+## Now playing
+
+If an MPRIS-capable player (Spotify, mpv, browsers, …) is running, the
+current artist, title, and album are shown on a line above the controls —
+it stays visible even in focus mode. The line disappears when nothing is
+playing or paused.
 
 ## Configuration
 

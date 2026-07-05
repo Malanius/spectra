@@ -2,6 +2,7 @@ mod app;
 mod audio;
 mod config;
 mod dsp;
+mod nowplaying;
 mod theme;
 mod ui;
 mod viz;

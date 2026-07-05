@@ -8,6 +8,7 @@ description = "Retro hi-fi spectrum analyzer for the terminal, powered by PipeWi
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 dirs = "6"
+mpris = "2"
 pipewire = { git = "https://gitlab.freedesktop.org/pipewire/pipewire-rs" }
 ratatui = "0.29"
 realfft = "3"

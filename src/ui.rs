@@ -16,18 +16,31 @@ pub fn max_bars(cfg: &Config, width: u16) -> usize {
 }
 
 pub fn draw(frame: &mut Frame, app: &App) {
+    let now_playing = app.now_playing();
+    let np_row = u16::from(now_playing.is_some());
+
     let viz_area = if app.cfg.hud {
         let rows = Layout::vertical([
             Constraint::Length(1),
             Constraint::Min(4),
+            Constraint::Length(np_row),
             Constraint::Length(1),
         ])
         .split(frame.area());
         draw_header(frame, rows[0], app);
-        draw_footer(frame, rows[2], app);
+        if let Some(np) = &now_playing {
+            draw_now_playing(frame, rows[2], app, np);
+        }
+        draw_footer(frame, rows[3], app);
         rows[1]
     } else {
-        frame.area()
+        // Focus mode: the now-playing line is the only chrome that stays.
+        let rows = Layout::vertical([Constraint::Min(4), Constraint::Length(np_row)])
+            .split(frame.area());
+        if let Some(np) = &now_playing {
+            draw_now_playing(frame, rows[1], app, np);
+        }
+        rows[0]
     };
 
     app.viz()
@@ -94,6 +107,37 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
     let pad = (area.width as usize).saturating_sub(left_w + right.chars().count());
     spans.push(Span::raw(" ".repeat(pad)));
     spans.push(Span::styled(right, Style::default().fg(theme.dim())));
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+fn draw_now_playing(
+    frame: &mut Frame,
+    area: Rect,
+    app: &App,
+    np: &crate::nowplaying::NowPlaying,
+) {
+    let theme = app.theme;
+    let dim = Style::default().fg(theme.dim());
+    let mut spans = vec![Span::styled(
+        if np.playing { " ▶ " } else { " ⏸ " },
+        Style::default().fg(theme.accent()),
+    )];
+    if !np.artist.is_empty() {
+        spans.push(Span::raw(np.artist.clone()));
+        spans.push(Span::styled(" — ", dim));
+    }
+    spans.push(Span::styled(
+        np.title.clone(),
+        Style::default().add_modifier(Modifier::BOLD),
+    ));
+    if !np.album.is_empty() {
+        spans.push(Span::styled(format!(" · {}", np.album), dim));
+    }
+    let right = format!("{} ", np.player);
+    let left_w: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+    let pad = (area.width as usize).saturating_sub(left_w + right.chars().count());
+    spans.push(Span::raw(" ".repeat(pad)));
+    spans.push(Span::styled(right, dim));
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
