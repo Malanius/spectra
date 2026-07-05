@@ -7,9 +7,10 @@ use ratatui::DefaultTerminal;
 
 use crate::audio::{enumerate_devices, AudioDevice, Capture, CaptureTarget};
 use crate::config::Config;
-use crate::dsp::{Analyzer, SMOOTHING_PRESETS};
+use crate::dsp::SMOOTHING_PRESETS;
 use crate::theme::ThemeId;
 use crate::ui;
+use crate::viz::{self, AudioFrame, Visualizer};
 
 const FRAME: Duration = Duration::from_millis(16);
 /// No fresh samples for this long → treat the stream as silent.
@@ -28,15 +29,18 @@ pub enum Popup {
 pub struct App {
     pub cfg: Config,
     pub theme: ThemeId,
-    pub analyzer: Analyzer,
     pub capture: Option<Capture>,
     pub device_label: String,
     pub popup: Popup,
     pub should_quit: bool,
     /// How many bars fit at the current terminal width (updated every frame).
     pub max_bars: usize,
+    visualizers: Vec<Box<dyn Visualizer>>,
+    viz_idx: usize,
     status: Option<(String, Instant)>,
-    frame_buf: Vec<f32>,
+    mono_buf: Vec<f32>,
+    left_buf: Vec<f32>,
+    right_buf: Vec<f32>,
     last_pushed: u64,
     last_data_at: Instant,
 }
@@ -44,30 +48,29 @@ pub struct App {
 impl App {
     pub fn new(cfg: Config, initial: CaptureTarget, device_label: String) -> Result<Self> {
         let theme = ThemeId::from_key(&cfg.theme).unwrap_or(ThemeId::Terminal);
-        let analyzer = Analyzer::new(
-            cfg.fft_size,
-            cfg.bars,
-            cfg.freq_min,
-            cfg.freq_max,
-            cfg.gain_db,
-            cfg.auto_gain,
-            cfg.smoothing,
-        );
+        let visualizers = viz::create_all(&cfg);
+        let viz_idx = visualizers
+            .iter()
+            .position(|v| v.id() == cfg.visualizer)
+            .unwrap_or(0);
+        let fft_size = cfg.fft_size;
         let mut app = Self {
             cfg,
             theme,
-            analyzer,
             capture: None,
             device_label,
             popup: Popup::None,
             should_quit: false,
             max_bars: 96,
+            visualizers,
+            viz_idx,
             status: None,
-            frame_buf: Vec::new(),
+            mono_buf: vec![0.0; fft_size],
+            left_buf: vec![0.0; fft_size],
+            right_buf: vec![0.0; fft_size],
             last_pushed: 0,
             last_data_at: Instant::now(),
         };
-        app.frame_buf = vec![0.0; app.cfg.fft_size];
 
         match Capture::start(initial.clone()) {
             Ok(c) => app.capture = Some(c),
@@ -84,6 +87,10 @@ impl App {
         Ok(app)
     }
 
+    pub fn viz(&self) -> &dyn Visualizer {
+        self.visualizers[self.viz_idx].as_ref()
+    }
+
     pub fn status(&self) -> Option<&str> {
         match &self.status {
             Some((msg, at)) if at.elapsed() < STATUS_TTL => Some(msg),
@@ -95,9 +102,9 @@ impl App {
         self.status = Some((msg, Instant::now()));
     }
 
-    /// Pull the latest window of samples and advance the analyzer.
+    /// Pull the latest window of samples and advance the active visualizer.
     fn tick(&mut self, dt: f32) {
-        let fft_size = self.analyzer.fft_size();
+        let fft_size = self.cfg.fft_size;
         let (rate, silent) = match &self.capture {
             Some(cap) => {
                 let pushed = cap.pushed.load(Ordering::Relaxed);
@@ -109,9 +116,13 @@ impl App {
                 let n = queue.len().min(fft_size);
                 let skip = queue.len() - n;
                 let pad = fft_size - n;
-                self.frame_buf[..pad].fill(0.0);
-                for (dst, &s) in self.frame_buf[pad..].iter_mut().zip(queue.iter().skip(skip)) {
-                    *dst = s;
+                self.mono_buf[..pad].fill(0.0);
+                self.left_buf[..pad].fill(0.0);
+                self.right_buf[..pad].fill(0.0);
+                for (i, &(l, r)) in queue.iter().skip(skip).enumerate() {
+                    self.left_buf[pad + i] = l;
+                    self.right_buf[pad + i] = r;
+                    self.mono_buf[pad + i] = (l + r) * 0.5;
                 }
                 drop(queue);
                 (
@@ -121,7 +132,14 @@ impl App {
             }
             None => (0, true),
         };
-        self.analyzer.update(&self.frame_buf, rate, dt, silent);
+        let frame = AudioFrame {
+            mono: &self.mono_buf,
+            left: &self.left_buf,
+            right: &self.right_buf,
+            rate,
+            silent,
+        };
+        self.visualizers[self.viz_idx].update(&frame, &self.cfg, self.max_bars, dt);
     }
 
     fn switch_device(&mut self, target: CaptureTarget, label: String) {
@@ -189,14 +207,17 @@ impl App {
             KeyCode::Char('c') if mods.contains(KeyModifiers::CONTROL) => {
                 self.should_quit = true
             }
+            KeyCode::Char('v') => {
+                self.viz_idx = (self.viz_idx + 1) % self.visualizers.len();
+                self.cfg.visualizer = self.viz().id().to_string();
+                self.set_status(format!("style: {}", self.viz().name()));
+            }
             KeyCode::Up => {
                 self.cfg.gain_db = (self.cfg.gain_db + 2.0).min(30.0);
-                self.analyzer.gain_db = self.cfg.gain_db;
                 self.set_status(format!("gain {:+.0} dB", self.cfg.gain_db));
             }
             KeyCode::Down => {
                 self.cfg.gain_db = (self.cfg.gain_db - 2.0).max(-30.0);
-                self.analyzer.gain_db = self.cfg.gain_db;
                 self.set_status(format!("gain {:+.0} dB", self.cfg.gain_db));
             }
             KeyCode::Char('+') | KeyCode::Char('=') => {
@@ -218,7 +239,6 @@ impl App {
             }
             KeyCode::Char('s') => {
                 self.cfg.smoothing = (self.cfg.smoothing + 1) % SMOOTHING_PRESETS.len();
-                self.analyzer.smoothing = self.cfg.smoothing;
                 self.set_status(format!(
                     "smoothing: {}",
                     SMOOTHING_PRESETS[self.cfg.smoothing].0
@@ -233,7 +253,6 @@ impl App {
             }
             KeyCode::Char('a') => {
                 self.cfg.auto_gain = !self.cfg.auto_gain;
-                self.analyzer.auto_gain = self.cfg.auto_gain;
                 self.set_status(format!(
                     "auto gain {}",
                     if self.cfg.auto_gain { "on" } else { "off" }
@@ -275,7 +294,6 @@ pub fn run(
 
         let width = terminal.size()?.width;
         app.max_bars = ui::max_bars(&app.cfg, width);
-        app.analyzer.set_bars(app.cfg.bars.clamp(4, app.max_bars));
         app.tick(dt);
         terminal.draw(|f| ui::draw(f, &app))?;
 

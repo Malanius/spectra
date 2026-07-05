@@ -91,10 +91,6 @@ impl Analyzer {
         a
     }
 
-    pub fn fft_size(&self) -> usize {
-        self.fft_size
-    }
-
     pub fn bars(&self) -> &[f32] {
         &self.bars
     }

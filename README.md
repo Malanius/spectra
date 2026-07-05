@@ -33,12 +33,31 @@ By default it captures the monitor of your default audio output. Options:
 -l, --list-devices     list sinks (monitors) and sources, then exit
 -t, --theme <THEME>    terminal | classic | catppuccin | gruvbox | nord | tokyo-night
 -b, --bars <N>         number of frequency bars (8–96)
+-s, --style <STYLE>    bars | mirror | ripples
 ```
+
+## Visualization styles
+
+Cycle with `v` at runtime:
+
+- **bars** — classic hi-fi spectrum: vertical bars, falling peak-hold caps,
+  frequency axis.
+- **mirror** — stereo deck view: the left channel grows up from a water
+  line, the right channel grows down, each with its own peaks.
+- **ripples** — rain on a lake: bass hits spawn large ripples near the
+  center, treble activity drizzles small ones; expanding wave packets
+  interfere, crests take the hot end of the theme gradient, troughs the cool
+  end.
+
+New styles implement the `Visualizer` trait in `src/viz/` and are registered
+in `viz::create_all` and `viz::IDS` — everything else (cycling, config
+persistence, CLI validation) picks them up automatically.
 
 ## Keys
 
 | Key     | Action                                    |
 | ------- | ----------------------------------------- |
+| `v`     | cycle visualization style                 |
 | `↑` `↓` | input gain up / down                      |
 | `+` `-` | more / fewer bars                         |
 | `s`     | cycle smoothing (fast / medium / smooth)  |
@@ -65,7 +84,7 @@ Settings (theme, bars, gain, smoothing, device, …) are saved to
 ## How it works
 
 A dedicated thread runs a PipeWire capture stream (`stream.capture.sink`)
-that downmixes float samples to mono into a ring buffer. The UI thread runs
+that pushes stereo float samples into a ring buffer. The UI thread runs
 at ~60 fps: it takes the latest 2048-sample window, applies a Hann window
 and a real FFT, folds the magnitudes into log-spaced bands, converts them to
 dB over a 64 dB display range, and animates bars (asymmetric attack/decay

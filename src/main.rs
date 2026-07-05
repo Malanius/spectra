@@ -4,6 +4,7 @@ mod config;
 mod dsp;
 mod theme;
 mod ui;
+mod viz;
 
 use anyhow::{bail, Result};
 use clap::Parser;
@@ -32,6 +33,10 @@ struct Cli {
     /// Number of frequency bars.
     #[arg(short, long)]
     bars: Option<usize>,
+
+    /// Visualization style.
+    #[arg(short = 's', long, value_parser = clap::builder::PossibleValuesParser::new(viz::IDS))]
+    style: Option<String>,
 }
 
 fn main() -> Result<()> {
@@ -59,6 +64,12 @@ fn main() -> Result<()> {
     }
     if let Some(b) = cli.bars {
         cfg.bars = b.clamp(8, 96);
+    }
+    if let Some(s) = cli.style {
+        cfg.visualizer = s;
+    }
+    if !viz::IDS.contains(&cfg.visualizer.as_str()) {
+        cfg.visualizer = "bars".into(); // unknown id from a hand-edited config
     }
 
     // Resolve the capture target: CLI flag beats config, both fall back to

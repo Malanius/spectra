@@ -39,11 +39,11 @@ impl Default for CaptureTarget {
 
 struct Terminate;
 
-/// A running PipeWire capture stream on its own thread. Mono samples are
-/// pushed into `samples`; `pushed` counts total samples ever received so the
-/// UI can detect a stalled/suspended stream.
+/// A running PipeWire capture stream on its own thread. Stereo (left, right)
+/// sample pairs are pushed into `samples`; `pushed` counts total frames ever
+/// received so the UI can detect a stalled/suspended stream.
 pub struct Capture {
-    pub samples: Arc<Mutex<VecDeque<f32>>>,
+    pub samples: Arc<Mutex<VecDeque<(f32, f32)>>>,
     pub sample_rate: Arc<AtomicU32>,
     pub pushed: Arc<AtomicU64>,
     sender: pw::channel::Sender<Terminate>,
@@ -52,7 +52,7 @@ pub struct Capture {
 
 struct StreamData {
     format: spa::param::audio::AudioInfoRaw,
-    samples: Arc<Mutex<VecDeque<f32>>>,
+    samples: Arc<Mutex<VecDeque<(f32, f32)>>>,
     sample_rate: Arc<AtomicU32>,
     pushed: Arc<AtomicU64>,
 }
@@ -188,13 +188,13 @@ fn run_capture(
 
             let mut queue = udata.samples.lock().unwrap();
             let mut count = 0u64;
-            // Downmix interleaved f32 frames to mono.
+            // Keep the first two channels as a stereo pair (mono duplicates
+            // into both; extra surround channels are ignored).
+            let sample = |b: &[u8]| f32::from_le_bytes([b[0], b[1], b[2], b[3]]);
             for frame in bytes.chunks_exact(4 * channels) {
-                let mut acc = 0.0f32;
-                for ch in frame.chunks_exact(4) {
-                    acc += f32::from_le_bytes([ch[0], ch[1], ch[2], ch[3]]);
-                }
-                queue.push_back(acc / channels as f32);
+                let l = sample(&frame[0..4]);
+                let r = if channels > 1 { sample(&frame[4..8]) } else { l };
+                queue.push_back((l, r));
                 count += 1;
             }
             let overflow = queue.len().saturating_sub(MAX_SAMPLES);

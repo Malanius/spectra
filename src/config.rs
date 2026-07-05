@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     /// Theme key, see `ThemeId::key()`.
     pub theme: String,
+    /// Visualization style id, see `viz::IDS`.
+    pub visualizer: String,
     /// Desired number of frequency bars (clamped to what fits on screen).
     pub bars: usize,
     /// Width of each bar in terminal cells.
@@ -38,6 +40,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             theme: "terminal".into(),
+            visualizer: "bars".into(),
             bars: 32,
             bar_width: 2,
             gap: 1,
