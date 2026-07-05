@@ -36,7 +36,7 @@ struct Cli {
     bars: Option<usize>,
 
     /// Visualization style.
-    #[arg(short = 's', long, value_parser = clap::builder::PossibleValuesParser::new(viz::IDS))]
+    #[arg(short = 's', long, value_parser = clap::builder::PossibleValuesParser::new(viz::style_ids()))]
     style: Option<String>,
 }
 
@@ -69,7 +69,7 @@ fn main() -> Result<()> {
     if let Some(s) = cli.style {
         cfg.visualizer = s;
     }
-    if !viz::IDS.contains(&cfg.visualizer.as_str()) {
+    if !viz::STYLES.iter().any(|s| s.id == cfg.visualizer) {
         cfg.visualizer = "bars".into(); // unknown id from a hand-edited config
     }
 

@@ -67,14 +67,6 @@ impl Channel {
 }
 
 impl Visualizer for Vu {
-    fn id(&self) -> &'static str {
-        "vu"
-    }
-
-    fn name(&self) -> &'static str {
-        "VU meters"
-    }
-
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, _max_bars: usize, dt: f32) {
         // Adapt the shared ceiling once from the loudest channel, then read
         // both channels against it (dt = 0 → no further adaptation).

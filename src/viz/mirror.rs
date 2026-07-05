@@ -35,14 +35,6 @@ impl Mirror {
 }
 
 impl Visualizer for Mirror {
-    fn id(&self) -> &'static str {
-        "mirror"
-    }
-
-    fn name(&self) -> &'static str {
-        "Mirrored stereo"
-    }
-
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, max_bars: usize, dt: f32) {
         let n = cfg.bars.clamp(4, max_bars);
         for (analyzer, samples) in [(&mut self.left, frame.left), (&mut self.right, frame.right)]

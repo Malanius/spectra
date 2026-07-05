@@ -67,14 +67,6 @@ impl Matrix {
 }
 
 impl Visualizer for Matrix {
-    fn id(&self) -> &'static str {
-        "matrix"
-    }
-
-    fn name(&self) -> &'static str {
-        "Matrix rain"
-    }
-
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, _max_bars: usize, dt: f32) {
         self.analyzer.gain_db = cfg.gain_db;
         self.analyzer.auto_gain = cfg.auto_gain;

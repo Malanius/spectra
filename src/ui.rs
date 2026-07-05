@@ -3,6 +3,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
+use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, Popup};
 use crate::config::Config;
@@ -97,14 +98,14 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
     }
     let right = format!(
         "{} · {} · {} · gain {:+.0} dB{} ",
-        app.viz().name(),
+        app.viz_name(),
         theme.display_name(),
         SMOOTHING_PRESETS[app.cfg.smoothing].0,
         app.cfg.gain_db,
         if app.cfg.auto_gain { " · AGC" } else { "" },
     );
-    let left_w: usize = spans.iter().map(|s| s.content.chars().count()).sum();
-    let pad = (area.width as usize).saturating_sub(left_w + right.chars().count());
+    let left_w: usize = spans.iter().map(|s| s.content.width()).sum();
+    let pad = (area.width as usize).saturating_sub(left_w + right.as_str().width());
     spans.push(Span::raw(" ".repeat(pad)));
     spans.push(Span::styled(right, Style::default().fg(theme.dim())));
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
@@ -134,8 +135,8 @@ fn draw_now_playing(
         spans.push(Span::styled(format!(" · {}", np.album), dim));
     }
     let right = format!("{} ", np.player);
-    let left_w: usize = spans.iter().map(|s| s.content.chars().count()).sum();
-    let pad = (area.width as usize).saturating_sub(left_w + right.chars().count());
+    let left_w: usize = spans.iter().map(|s| s.content.width()).sum();
+    let pad = (area.width as usize).saturating_sub(left_w + right.as_str().width());
     spans.push(Span::raw(" ".repeat(pad)));
     spans.push(Span::styled(right, dim));
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
@@ -227,13 +228,12 @@ fn draw_help(frame: &mut Frame, app: &App) {
 fn draw_styles(frame: &mut Frame, app: &App, selected: usize) {
     let theme = app.theme;
     let current = app.viz_index();
-    let items: Vec<ListItem> = app
-        .style_names()
+    let items: Vec<ListItem> = crate::viz::STYLES
         .iter()
         .enumerate()
-        .map(|(i, name)| {
+        .map(|(i, style)| {
             let marker = if i == current { "● " } else { "  " };
-            ListItem::new(format!(" {marker}{name}"))
+            ListItem::new(format!(" {marker}{}", style.name))
         })
         .collect();
     let height = (items.len() as u16 + 2).min(frame.area().height.saturating_sub(2));

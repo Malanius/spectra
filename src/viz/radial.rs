@@ -36,14 +36,6 @@ impl Radial {
 }
 
 impl Visualizer for Radial {
-    fn id(&self) -> &'static str {
-        "radial"
-    }
-
-    fn name(&self) -> &'static str {
-        "Radial"
-    }
-
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, _max_bars: usize, dt: f32) {
         self.analyzer.gain_db = cfg.gain_db;
         self.analyzer.auto_gain = cfg.auto_gain;

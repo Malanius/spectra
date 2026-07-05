@@ -1,18 +1,19 @@
 use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc};
 use std::thread::JoinHandle;
 
 use anyhow::{anyhow, Context as _, Result};
 use pipewire as pw;
 use pw::spa;
+use ringbuf::traits::{Consumer, Producer, Split};
+use ringbuf::{HeapCons, HeapProd, HeapRb};
 use spa::param::format::{MediaSubtype, MediaType};
 use spa::pod::Pod;
 
-/// Upper bound on buffered mono samples (~0.7 s at 48 kHz).
-pub const MAX_SAMPLES: usize = 1 << 15;
+/// Ring capacity in stereo frames (~0.7 s at 48 kHz).
+pub const RING_CAPACITY: usize = 1 << 15;
 
 #[derive(Debug, Clone)]
 pub struct AudioDevice {
@@ -39,11 +40,12 @@ impl Default for CaptureTarget {
 
 struct Terminate;
 
-/// A running PipeWire capture stream on its own thread. Stereo (left, right)
-/// sample pairs are pushed into `samples`; `pushed` counts total frames ever
+/// A running PipeWire capture stream on its own thread. The RT process
+/// callback pushes stereo frames into a lock-free SPSC ring; the UI thread
+/// drains it via [`Capture::drain`]. `pushed` counts total frames ever
 /// received so the UI can detect a stalled/suspended stream.
 pub struct Capture {
-    pub samples: Arc<Mutex<VecDeque<(f32, f32)>>>,
+    consumer: HeapCons<(f32, f32)>,
     pub sample_rate: Arc<AtomicU32>,
     pub pushed: Arc<AtomicU64>,
     sender: pw::channel::Sender<Terminate>,
@@ -52,20 +54,19 @@ pub struct Capture {
 
 struct StreamData {
     format: spa::param::audio::AudioInfoRaw,
-    samples: Arc<Mutex<VecDeque<(f32, f32)>>>,
+    producer: HeapProd<(f32, f32)>,
     sample_rate: Arc<AtomicU32>,
     pushed: Arc<AtomicU64>,
 }
 
 impl Capture {
     pub fn start(target: CaptureTarget) -> Result<Self> {
-        let samples = Arc::new(Mutex::new(VecDeque::with_capacity(MAX_SAMPLES)));
+        let (producer, consumer) = HeapRb::<(f32, f32)>::new(RING_CAPACITY).split();
         let sample_rate = Arc::new(AtomicU32::new(0));
         let pushed = Arc::new(AtomicU64::new(0));
         let (pw_sender, pw_receiver) = pw::channel::channel::<Terminate>();
         let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
 
-        let t_samples = samples.clone();
         let t_rate = sample_rate.clone();
         let t_pushed = pushed.clone();
         let handle = std::thread::Builder::new()
@@ -73,7 +74,7 @@ impl Capture {
             .spawn(move || {
                 let data = StreamData {
                     format: Default::default(),
-                    samples: t_samples,
+                    producer,
                     sample_rate: t_rate,
                     pushed: t_pushed,
                 };
@@ -84,7 +85,7 @@ impl Capture {
             .context("failed to spawn audio thread")?;
 
         let mut capture = Self {
-            samples,
+            consumer,
             sample_rate,
             pushed,
             sender: pw_sender,
@@ -100,6 +101,13 @@ impl Capture {
                 capture.join();
                 Err(anyhow!("audio thread exited during startup"))
             }
+        }
+    }
+
+    /// Drain all pending stereo frames into `f`, oldest first.
+    pub fn drain(&mut self, mut f: impl FnMut(f32, f32)) {
+        while let Some((l, r)) = self.consumer.try_pop() {
+            f(l, r);
         }
     }
 
@@ -173,6 +181,9 @@ fn run_capture(
             }
         })
         .process(|stream, udata| {
+            // Runs on the PipeWire RT thread: no locks, no allocation. Frames
+            // go straight into the SPSC ring; if the UI stalls and the ring
+            // fills, the newest frames are dropped.
             let Some(mut buffer) = stream.dequeue_buffer() else {
                 return;
             };
@@ -181,28 +192,38 @@ fn run_capture(
                 return;
             }
             let channels = udata.format.channels().max(1) as usize;
+            let frame_bytes = 4 * channels;
             let d = &mut datas[0];
-            let n_bytes = d.chunk().size() as usize;
+            let chunk = d.chunk();
+            let offset = chunk.offset() as usize;
+            let size = chunk.size() as usize;
+            let stride = chunk.stride().max(0) as usize;
             let Some(bytes) = d.data() else { return };
-            let bytes = &bytes[..n_bytes.min(bytes.len())];
+            let end = (offset + size).min(bytes.len());
+            if offset >= end {
+                return;
+            }
+            let bytes = &bytes[offset..end];
+            // Interleaved frames are normally packed, but honor a larger
+            // stride if the producer declares one.
+            let step = stride.max(frame_bytes);
 
-            let mut queue = udata.samples.lock().unwrap();
-            let mut count = 0u64;
-            // Keep the first two channels as a stereo pair (mono duplicates
-            // into both; extra surround channels are ignored).
             let sample = |b: &[u8]| f32::from_le_bytes([b[0], b[1], b[2], b[3]]);
-            for frame in bytes.chunks_exact(4 * channels) {
+            let mut count = 0u64;
+            let mut off = 0;
+            while off + frame_bytes <= bytes.len() {
+                let frame = &bytes[off..off + frame_bytes];
                 let l = sample(&frame[0..4]);
                 let r = if channels > 1 { sample(&frame[4..8]) } else { l };
-                queue.push_back((l, r));
+                if udata.producer.try_push((l, r)).is_err() {
+                    break; // ring full — drop the rest of this buffer
+                }
                 count += 1;
+                off += step;
             }
-            let overflow = queue.len().saturating_sub(MAX_SAMPLES);
-            if overflow > 0 {
-                queue.drain(..overflow);
+            if count > 0 {
+                udata.pushed.fetch_add(count, Ordering::Relaxed);
             }
-            drop(queue);
-            udata.pushed.fetch_add(count, Ordering::Relaxed);
         })
         .register()
         .context("failed to register stream listener")?;

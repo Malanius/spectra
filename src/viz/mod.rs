@@ -29,13 +29,10 @@ pub struct AudioFrame<'a> {
     pub silent: bool,
 }
 
-/// A visualization style. To add a new one: implement this trait, register
-/// it in [`create_all`], and add its id to [`IDS`].
+/// A visualization style. To add a new one: implement this trait and add
+/// one entry to [`STYLES`] — cycling, the style menu, config persistence,
+/// and CLI validation all derive from that table.
 pub trait Visualizer {
-    /// Stable identifier used in the config file and --style flag.
-    fn id(&self) -> &'static str;
-    /// Human-readable name shown in the header and status line.
-    fn name(&self) -> &'static str;
     /// Advance state by `dt` seconds. `max_bars` is how many bars currently
     /// fit on screen; styles that don't draw bars may ignore it.
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, max_bars: usize, dt: f32);
@@ -43,40 +40,39 @@ pub trait Visualizer {
     fn render(&self, area: Rect, buf: &mut Buffer, theme: ThemeId, cfg: &Config);
 }
 
-/// Ids of all styles, in cycle order (single source for CLI validation).
-pub const IDS: [&str; 13] = [
-    "bars",
-    "mirror",
-    "ripples",
-    "fractal",
-    "spectrogram",
-    "scope",
-    "vector",
-    "vu",
-    "fire",
-    "particles",
-    "matrix",
-    "radial",
-    "skyline",
+/// Registry entry for one style: the config/CLI id, the display name, and
+/// the constructor.
+pub struct StyleInfo {
+    pub id: &'static str,
+    pub name: &'static str,
+    factory: fn(&Config) -> Box<dyn Visualizer>,
+}
+
+/// All styles, in cycle order. The single source of truth.
+pub const STYLES: [StyleInfo; 13] = [
+    StyleInfo { id: "bars", name: "Bars", factory: |c| Box::new(bars::Bars::new(c)) },
+    StyleInfo { id: "mirror", name: "Mirrored stereo", factory: |c| Box::new(mirror::Mirror::new(c)) },
+    StyleInfo { id: "ripples", name: "Ripples", factory: |c| Box::new(ripples::Ripples::new(c)) },
+    StyleInfo { id: "fractal", name: "Fractal", factory: |c| Box::new(fractal::Fractal::new(c)) },
+    StyleInfo { id: "spectrogram", name: "Spectrogram", factory: |c| Box::new(spectrogram::Spectrogram::new(c)) },
+    StyleInfo { id: "scope", name: "Oscilloscope", factory: |c| Box::new(scope::Scope::new(c)) },
+    StyleInfo { id: "vector", name: "Vectorscope", factory: |c| Box::new(vector::Vector::new(c)) },
+    StyleInfo { id: "vu", name: "VU meters", factory: |c| Box::new(vu::Vu::new(c)) },
+    StyleInfo { id: "fire", name: "Fire", factory: |c| Box::new(fire::Fire::new(c)) },
+    StyleInfo { id: "particles", name: "Particles", factory: |c| Box::new(particles::Particles::new(c)) },
+    StyleInfo { id: "matrix", name: "Matrix rain", factory: |c| Box::new(matrix::Matrix::new(c)) },
+    StyleInfo { id: "radial", name: "Radial", factory: |c| Box::new(radial::Radial::new(c)) },
+    StyleInfo { id: "skyline", name: "Skyline", factory: |c| Box::new(skyline::Skyline::new(c)) },
 ];
 
-/// Instantiate every visualizer, in the same order as [`IDS`].
+/// Instantiate every visualizer, in [`STYLES`] order.
 pub fn create_all(cfg: &Config) -> Vec<Box<dyn Visualizer>> {
-    vec![
-        Box::new(bars::Bars::new(cfg)),
-        Box::new(mirror::Mirror::new(cfg)),
-        Box::new(ripples::Ripples::new(cfg)),
-        Box::new(fractal::Fractal::new(cfg)),
-        Box::new(spectrogram::Spectrogram::new(cfg)),
-        Box::new(scope::Scope::new(cfg)),
-        Box::new(vector::Vector::new(cfg)),
-        Box::new(vu::Vu::new(cfg)),
-        Box::new(fire::Fire::new(cfg)),
-        Box::new(particles::Particles::new(cfg)),
-        Box::new(matrix::Matrix::new(cfg)),
-        Box::new(radial::Radial::new(cfg)),
-        Box::new(skyline::Skyline::new(cfg)),
-    ]
+    STYLES.iter().map(|s| (s.factory)(cfg)).collect()
+}
+
+/// Style ids, for CLI value validation.
+pub fn style_ids() -> impl Iterator<Item = &'static str> {
+    STYLES.iter().map(|s| s.id)
 }
 
 /// Lower-eighth block characters, index i covers (i+1)/8 of the cell.

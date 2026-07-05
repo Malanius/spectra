@@ -23,8 +23,8 @@ pub struct Analyzer {
     fft: Arc<dyn RealToComplex<f32>>,
     fft_size: usize,
     window: Vec<f32>,
-    /// Scale factor turning windowed FFT magnitude into ~dBFS.
-    mag_scale: f32,
+    /// Scale factor turning windowed FFT power into ~dBFS.
+    power_scale: f32,
     input: Vec<f32>,
     spectrum: Vec<Complex<f32>>,
     /// Fractional FFT-bin range per bar, log-spaced in frequency.
@@ -69,7 +69,7 @@ impl Analyzer {
             fft,
             fft_size,
             window,
-            mag_scale: 2.0 / window_sum,
+            power_scale: (2.0 / window_sum) * (2.0 / window_sum),
             input,
             spectrum,
             bands: Vec::new(),
@@ -227,19 +227,24 @@ impl Analyzer {
         for (i, &(lo, hi)) in self.bands.iter().enumerate() {
             let lo_i = (lo.ceil() as usize).min(max_bin);
             let hi_i = (hi.floor() as usize).min(max_bin);
-            let mag = if lo_i <= hi_i && hi_i > 0 {
+            // Total energy per band rather than the loudest bin: narrow
+            // spikes no longer dominate, and since bands are log-spaced
+            // (constant fraction of an octave) this is inherently flat for
+            // pink-ish program material — no extra tilt compensation needed.
+            let power = if lo_i <= hi_i && hi_i > 0 {
                 (lo_i..=hi_i)
-                    .map(|b| self.spectrum[b].norm())
-                    .fold(0.0f32, f32::max)
+                    .map(|b| self.spectrum[b].norm_sqr())
+                    .sum::<f32>()
             } else {
                 // Band narrower than one bin: interpolate at its center.
                 let c = ((lo + hi) * 0.5).clamp(0.0, max_bin as f32);
                 let b0 = c.floor() as usize;
                 let b1 = (b0 + 1).min(max_bin);
                 let frac = c - b0 as f32;
-                self.spectrum[b0].norm() * (1.0 - frac) + self.spectrum[b1].norm() * frac
+                self.spectrum[b0].norm_sqr() * (1.0 - frac)
+                    + self.spectrum[b1].norm_sqr() * frac
             };
-            self.raw_db[i] = 20.0 * (mag * self.mag_scale + 1e-10).log10();
+            self.raw_db[i] = 10.0 * (power * self.power_scale + 1e-12).log10();
         }
     }
 }

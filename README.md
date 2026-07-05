@@ -71,9 +71,10 @@ Cycle forward with `v`, backward with `V`:
 - **skyline** — strip-chart of the loudness envelope scrolling right to
   left, with a bright peak ridge above the RMS silhouette.
 
-New styles implement the `Visualizer` trait in `src/viz/` and are registered
-in `viz::create_all` and `viz::IDS` — everything else (cycling, config
-persistence, CLI validation) picks them up automatically.
+New styles implement the `Visualizer` trait in `src/viz/` and add one entry
+to the `viz::STYLES` registry (id, display name, constructor) — everything
+else (cycling, the style menu, config persistence, CLI validation) derives
+from that table.
 
 ## Keys
 

@@ -42,14 +42,6 @@ impl Fire {
 }
 
 impl Visualizer for Fire {
-    fn id(&self) -> &'static str {
-        "fire"
-    }
-
-    fn name(&self) -> &'static str {
-        "Fire"
-    }
-
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, _max_bars: usize, dt: f32) {
         self.analyzer.gain_db = cfg.gain_db;
         self.analyzer.auto_gain = cfg.auto_gain;

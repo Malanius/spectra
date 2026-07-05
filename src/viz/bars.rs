@@ -30,14 +30,6 @@ impl Bars {
 }
 
 impl Visualizer for Bars {
-    fn id(&self) -> &'static str {
-        "bars"
-    }
-
-    fn name(&self) -> &'static str {
-        "Bars"
-    }
-
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, max_bars: usize, dt: f32) {
         self.analyzer.gain_db = cfg.gain_db;
         self.analyzer.auto_gain = cfg.auto_gain;

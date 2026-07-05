@@ -37,14 +37,6 @@ impl Skyline {
 }
 
 impl Visualizer for Skyline {
-    fn id(&self) -> &'static str {
-        "skyline"
-    }
-
-    fn name(&self) -> &'static str {
-        "Skyline"
-    }
-
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, _max_bars: usize, dt: f32) {
         let (rms, peak) = if frame.silent {
             (0.0, 0.0)

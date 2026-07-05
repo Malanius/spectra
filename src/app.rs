@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
@@ -46,6 +47,10 @@ pub struct App {
     mono_buf: Vec<f32>,
     left_buf: Vec<f32>,
     right_buf: Vec<f32>,
+    /// Sliding sample history, drained from the capture ring each frame and
+    /// trimmed to the FFT window length.
+    history_left: VecDeque<f32>,
+    history_right: VecDeque<f32>,
     last_pushed: u64,
     last_data_at: Instant,
 }
@@ -54,9 +59,9 @@ impl App {
     pub fn new(cfg: Config, initial: CaptureTarget, device_label: String) -> Result<Self> {
         let theme = ThemeId::from_key(&cfg.theme).unwrap_or(ThemeId::Terminal);
         let visualizers = viz::create_all(&cfg);
-        let viz_idx = visualizers
+        let viz_idx = viz::STYLES
             .iter()
-            .position(|v| v.id() == cfg.visualizer)
+            .position(|s| s.id == cfg.visualizer)
             .unwrap_or(0);
         let fft_size = cfg.fft_size;
         let mut app = Self {
@@ -74,6 +79,8 @@ impl App {
             mono_buf: vec![0.0; fft_size],
             left_buf: vec![0.0; fft_size],
             right_buf: vec![0.0; fft_size],
+            history_left: VecDeque::with_capacity(fft_size + 1),
+            history_right: VecDeque::with_capacity(fft_size + 1),
             last_pushed: 0,
             last_data_at: Instant::now(),
         };
@@ -101,18 +108,18 @@ impl App {
         self.viz_idx
     }
 
+    pub fn viz_name(&self) -> &'static str {
+        viz::STYLES[self.viz_idx].name
+    }
+
     pub fn now_playing(&self) -> Option<NowPlaying> {
         self.now_playing.lock().unwrap().clone()
     }
 
-    pub fn style_names(&self) -> Vec<&'static str> {
-        self.visualizers.iter().map(|v| v.name()).collect()
-    }
-
     fn select_style(&mut self, idx: usize) {
         self.viz_idx = idx % self.visualizers.len();
-        self.cfg.visualizer = self.viz().id().to_string();
-        self.set_status(format!("style: {}", self.viz().name()));
+        self.cfg.visualizer = viz::STYLES[self.viz_idx].id.to_string();
+        self.set_status(format!("style: {}", self.viz_name()));
     }
 
     pub fn status(&self) -> Option<&str> {
@@ -129,26 +136,25 @@ impl App {
     /// Pull the latest window of samples and advance the active visualizer.
     fn tick(&mut self, dt: f32) {
         let fft_size = self.cfg.fft_size;
-        let (rate, silent) = match &self.capture {
+        let (rate, silent) = match self.capture.as_mut() {
             Some(cap) => {
+                let hl = &mut self.history_left;
+                let hr = &mut self.history_right;
+                cap.drain(|l, r| {
+                    hl.push_back(l);
+                    hr.push_back(r);
+                });
+                while hl.len() > fft_size {
+                    hl.pop_front();
+                }
+                while hr.len() > fft_size {
+                    hr.pop_front();
+                }
                 let pushed = cap.pushed.load(Ordering::Relaxed);
                 if pushed != self.last_pushed {
                     self.last_pushed = pushed;
                     self.last_data_at = Instant::now();
                 }
-                let queue = cap.samples.lock().unwrap();
-                let n = queue.len().min(fft_size);
-                let skip = queue.len() - n;
-                let pad = fft_size - n;
-                self.mono_buf[..pad].fill(0.0);
-                self.left_buf[..pad].fill(0.0);
-                self.right_buf[..pad].fill(0.0);
-                for (i, &(l, r)) in queue.iter().skip(skip).enumerate() {
-                    self.left_buf[pad + i] = l;
-                    self.right_buf[pad + i] = r;
-                    self.mono_buf[pad + i] = (l + r) * 0.5;
-                }
-                drop(queue);
                 (
                     cap.sample_rate.load(Ordering::Relaxed),
                     self.last_data_at.elapsed() > STALL,
@@ -156,6 +162,23 @@ impl App {
             }
             None => (0, true),
         };
+
+        let n = self.history_left.len().min(fft_size);
+        let pad = fft_size - n;
+        self.mono_buf[..pad].fill(0.0);
+        self.left_buf[..pad].fill(0.0);
+        self.right_buf[..pad].fill(0.0);
+        for (i, (&l, &r)) in self
+            .history_left
+            .iter()
+            .zip(self.history_right.iter())
+            .take(n)
+            .enumerate()
+        {
+            self.left_buf[pad + i] = l;
+            self.right_buf[pad + i] = r;
+            self.mono_buf[pad + i] = (l + r) * 0.5;
+        }
         let frame = AudioFrame {
             mono: &self.mono_buf,
             left: &self.left_buf,
@@ -172,6 +195,8 @@ impl App {
             Ok(c) => {
                 self.capture = Some(c);
                 self.last_pushed = 0;
+                self.history_left.clear();
+                self.history_right.clear();
                 self.cfg.device = target.node_name;
                 self.cfg.device_is_sink = target.is_sink;
                 self.set_status(format!("capturing: {label}"));

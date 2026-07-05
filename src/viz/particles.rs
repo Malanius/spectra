@@ -62,14 +62,6 @@ impl Particles {
 }
 
 impl Visualizer for Particles {
-    fn id(&self) -> &'static str {
-        "particles"
-    }
-
-    fn name(&self) -> &'static str {
-        "Particles"
-    }
-
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, _max_bars: usize, dt: f32) {
         self.analyzer.gain_db = cfg.gain_db;
         self.analyzer.auto_gain = cfg.auto_gain;

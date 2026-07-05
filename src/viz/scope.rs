@@ -31,14 +31,6 @@ impl Scope {
 }
 
 impl Visualizer for Scope {
-    fn id(&self) -> &'static str {
-        "scope"
-    }
-
-    fn name(&self) -> &'static str {
-        "Oscilloscope"
-    }
-
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, _max_bars: usize, dt: f32) {
         self.rate = frame.rate;
         if frame.silent {

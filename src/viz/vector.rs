@@ -32,14 +32,6 @@ impl Vector {
 }
 
 impl Visualizer for Vector {
-    fn id(&self) -> &'static str {
-        "vector"
-    }
-
-    fn name(&self) -> &'static str {
-        "Vectorscope"
-    }
-
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, _max_bars: usize, dt: f32) {
         let fade = (-DECAY * dt).exp();
         for v in &mut self.field {
