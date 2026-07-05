@@ -31,6 +31,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     match &app.popup {
         Popup::Help => draw_help(frame, app),
         Popup::Devices { devices, selected } => draw_devices(frame, app, devices, *selected),
+        Popup::Styles { selected } => draw_styles(frame, app, *selected),
         Popup::None => {}
     }
 }
@@ -79,8 +80,10 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
         .add_modifier(Modifier::BOLD);
     let txt = Style::default().fg(theme.dim());
     let line = Line::from(vec![
-        Span::styled(" v", key),
+        Span::styled(" v/V", key),
         Span::styled(" style  ", txt),
+        Span::styled("m", key),
+        Span::styled(" menu  ", txt),
         Span::styled("↑↓", key),
         Span::styled(" gain  ", txt),
         Span::styled("+-", key),
@@ -115,8 +118,9 @@ fn draw_help(frame: &mut Frame, app: &App) {
     let key = Style::default()
         .fg(theme.accent())
         .add_modifier(Modifier::BOLD);
-    let rows: [(&str, &str); 10] = [
+    let rows: [(&str, &str); 11] = [
         ("v / V", "next / previous visualization style"),
+        ("m", "visualization style menu"),
         ("↑ / ↓", "input gain up / down"),
         ("+ / -", "more / fewer bars"),
         ("s", "cycle smoothing (fast/medium/smooth)"),
@@ -149,6 +153,40 @@ fn draw_help(frame: &mut Frame, app: &App) {
     );
 }
 
+fn draw_styles(frame: &mut Frame, app: &App, selected: usize) {
+    let theme = app.theme;
+    let current = app.viz_index();
+    let items: Vec<ListItem> = app
+        .style_names()
+        .iter()
+        .enumerate()
+        .map(|(i, name)| {
+            let marker = if i == current { "● " } else { "  " };
+            ListItem::new(format!(" {marker}{name}"))
+        })
+        .collect();
+    let height = (items.len() as u16 + 2).min(frame.area().height.saturating_sub(2));
+    let area = popup_rect(frame, 44, height);
+    let mut state = ListState::default().with_selected(Some(selected));
+    frame.render_widget(Clear, area);
+    frame.render_stateful_widget(
+        List::new(items)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(theme.accent()))
+                    .title(" Style (Enter/Space to select, Esc to close) "),
+            )
+            .highlight_style(
+                Style::default()
+                    .fg(theme.accent())
+                    .add_modifier(Modifier::BOLD | Modifier::REVERSED),
+            ),
+        area,
+        &mut state,
+    );
+}
+
 fn draw_devices(
     frame: &mut Frame,
     app: &App,
@@ -171,7 +209,7 @@ fn draw_devices(
                 Block::default()
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(theme.accent()))
-                    .title(" Capture device (Enter to select, Esc to close) "),
+                    .title(" Capture device (Enter/Space to select, Esc to close) "),
             )
             .highlight_style(
                 Style::default()

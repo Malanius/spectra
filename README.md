@@ -76,6 +76,7 @@ persistence, CLI validation) picks them up automatically.
 | Key     | Action                                    |
 | ------- | ----------------------------------------- |
 | `v` `V` | next / previous visualization style       |
+| `m`     | visualization style menu                  |
 | `↑` `↓` | input gain up / down                      |
 | `+` `-` | more / fewer bars                         |
 | `s`     | cycle smoothing (fast / medium / smooth)  |

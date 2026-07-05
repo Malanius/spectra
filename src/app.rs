@@ -24,6 +24,9 @@ pub enum Popup {
         devices: Vec<AudioDevice>,
         selected: usize,
     },
+    Styles {
+        selected: usize,
+    },
 }
 
 pub struct App {
@@ -89,6 +92,20 @@ impl App {
 
     pub fn viz(&self) -> &dyn Visualizer {
         self.visualizers[self.viz_idx].as_ref()
+    }
+
+    pub fn viz_index(&self) -> usize {
+        self.viz_idx
+    }
+
+    pub fn style_names(&self) -> Vec<&'static str> {
+        self.visualizers.iter().map(|v| v.name()).collect()
+    }
+
+    fn select_style(&mut self, idx: usize) {
+        self.viz_idx = idx % self.visualizers.len();
+        self.cfg.visualizer = self.viz().id().to_string();
+        self.set_status(format!("style: {}", self.viz().name()));
     }
 
     pub fn status(&self) -> Option<&str> {
@@ -177,7 +194,7 @@ impl App {
                 KeyCode::Down | KeyCode::Char('j') => {
                     *selected = (*selected + 1).min(devices.len()); // +1 entry for "default"
                 }
-                KeyCode::Enter => {
+                KeyCode::Enter | KeyCode::Char(' ') => {
                     let (target, label) = if *selected == 0 {
                         (CaptureTarget::default(), "Default output".to_string())
                     } else {
@@ -197,6 +214,27 @@ impl App {
             }
             return;
         }
+        if let Popup::Styles { selected } = &mut self.popup {
+            let n = self.visualizers.len();
+            match code {
+                KeyCode::Esc | KeyCode::Char('m') | KeyCode::Char('q') => {
+                    self.popup = Popup::None
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    *selected = (*selected + n - 1) % n;
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    *selected = (*selected + 1) % n;
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    let idx = *selected;
+                    self.popup = Popup::None;
+                    self.select_style(idx);
+                }
+                _ => {}
+            }
+            return;
+        }
         if matches!(self.popup, Popup::Help) {
             self.popup = Popup::None;
             return;
@@ -209,13 +247,17 @@ impl App {
             }
             KeyCode::Char('v') | KeyCode::Char('V') => {
                 let n = self.visualizers.len();
-                self.viz_idx = if code == KeyCode::Char('v') {
+                let idx = if code == KeyCode::Char('v') {
                     (self.viz_idx + 1) % n
                 } else {
                     (self.viz_idx + n - 1) % n
                 };
-                self.cfg.visualizer = self.viz().id().to_string();
-                self.set_status(format!("style: {}", self.viz().name()));
+                self.select_style(idx);
+            }
+            KeyCode::Char('m') => {
+                self.popup = Popup::Styles {
+                    selected: self.viz_idx,
+                }
             }
             KeyCode::Up => {
                 self.cfg.gain_db = (self.cfg.gain_db + 2.0).min(30.0);
