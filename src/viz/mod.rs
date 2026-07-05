@@ -1,5 +1,6 @@
 pub mod bars;
 pub mod fire;
+pub mod fractal;
 pub mod matrix;
 pub mod mirror;
 pub mod particles;
@@ -43,10 +44,11 @@ pub trait Visualizer {
 }
 
 /// Ids of all styles, in cycle order (single source for CLI validation).
-pub const IDS: [&str; 12] = [
+pub const IDS: [&str; 13] = [
     "bars",
     "mirror",
     "ripples",
+    "fractal",
     "spectrogram",
     "scope",
     "vector",
@@ -64,6 +66,7 @@ pub fn create_all(cfg: &Config) -> Vec<Box<dyn Visualizer>> {
         Box::new(bars::Bars::new(cfg)),
         Box::new(mirror::Mirror::new(cfg)),
         Box::new(ripples::Ripples::new(cfg)),
+        Box::new(fractal::Fractal::new(cfg)),
         Box::new(spectrogram::Spectrogram::new(cfg)),
         Box::new(scope::Scope::new(cfg)),
         Box::new(vector::Vector::new(cfg)),
@@ -128,15 +131,18 @@ pub(crate) struct OnsetDetector {
     cooldown: f32,
     ratio: f32,
     floor: f32,
+    /// Minimum seconds between onsets (refractory period).
+    refractory: f32,
 }
 
 impl OnsetDetector {
-    pub fn new(ratio: f32, floor: f32) -> Self {
+    pub fn new(ratio: f32, floor: f32, refractory: f32) -> Self {
         Self {
             ema: 0.0,
             cooldown: 0.0,
             ratio,
             floor,
+            refractory,
         }
     }
 
@@ -147,7 +153,7 @@ impl OnsetDetector {
         self.cooldown -= dt;
         if !silent && level > self.floor && level > ema * self.ratio + 0.03 && self.cooldown <= 0.0
         {
-            self.cooldown = 0.13;
+            self.cooldown = self.refractory;
             Some(level)
         } else {
             None

@@ -47,7 +47,7 @@ impl Particles {
                 0, // always fast attack: onsets vanish on smoothed bars
             ),
             particles: Vec::new(),
-            onset: OnsetDetector::new(1.12, 0.12),
+            onset: OnsetDetector::new(1.12, 0.12, 0.13),
             rng: Rng(0xa5a5_1234_dead_beef),
             drizzle: 0.0,
         }

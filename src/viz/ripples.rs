@@ -52,7 +52,7 @@ impl Ripples {
                 cfg.smoothing,
             ),
             ripples: Vec::new(),
-            onset: OnsetDetector::new(1.3, 0.25),
+            onset: OnsetDetector::new(1.3, 0.25, 0.13),
             rain_acc: 0.0,
             rng: Rng(0x9e3779b97f4a7c15),
         }

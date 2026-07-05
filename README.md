@@ -48,6 +48,9 @@ Cycle forward with `v`, backward with `V`:
   center, treble activity drizzles small ones; expanding wave packets
   interfere, crests take the hot end of the theme gradient, troughs the cool
   end.
+- **fractal** — a morphing Julia set: bass drives the constant along the
+  Mandelbrot cardioid boundary, beats shatter the set into dendrites, level
+  breathes the zoom, and treble cycles the palette.
 - **spectrogram** — scrolling waterfall: frequency left→right, time flowing
   upward, intensity as color; two time slices per row via half-blocks.
 - **scope** — oscilloscope: the raw waveform as a braille trace with a
