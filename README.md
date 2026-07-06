@@ -113,6 +113,21 @@ Settings (theme, bars, gain, smoothing, device, …) are saved to
 `~/.config/spectra/config.toml` on exit and restored on the next start.
 `fft_size`, `freq_min`, and `freq_max` can be tuned there as well.
 
+Additional config-file-only tunables:
+
+- `band_agg` — how FFT bins fold into a bar for bars/mirror: `"energy"`
+  (default), `"max"` (punchy), `"avg"` (smooth), `"hybrid"`.
+- `[mirror] mode` — `"lr"` (left/right) or `"ms"` (mid/side stereo width).
+- `[scope] window_ms` — oscilloscope time window (5–200 ms).
+- `[fire] cooling` — flame-height multiplier; >1 shorter, <1 taller.
+- `[particles] density` — spawn-rate multiplier (0.1–4).
+- `[radial] spokes` — spokes around the circle (24–256).
+- `[spectrogram] slice_ms` / `floor` / `fade` — scroll speed, display
+  threshold, and fading of older rows.
+
+The vectorscope also shows an L/R correlation meter along its bottom edge
+(+1 mono, 0 wide, −1 out of phase).
+
 ## How it works
 
 A dedicated thread runs a PipeWire capture stream (`stream.capture.sink`)

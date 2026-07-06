@@ -4,6 +4,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::dsp::BandAgg;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -36,6 +38,101 @@ pub struct Config {
     /// Analyzed frequency range in Hz.
     pub freq_min: f32,
     pub freq_max: f32,
+    /// Band aggregation for bars/mirror: "energy", "max", "avg", "hybrid".
+    pub band_agg: String,
+    pub mirror: MirrorCfg,
+    pub scope: ScopeCfg,
+    pub fire: FireCfg,
+    pub particles: ParticlesCfg,
+    pub radial: RadialCfg,
+    pub spectrogram: SpectrogramCfg,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MirrorCfg {
+    /// "lr" = left/right channels, "ms" = mid/side (stereo width view).
+    pub mode: String,
+}
+
+impl Default for MirrorCfg {
+    fn default() -> Self {
+        Self { mode: "lr".into() }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ScopeCfg {
+    /// Time window shown on screen, in milliseconds.
+    pub window_ms: f32,
+}
+
+impl Default for ScopeCfg {
+    fn default() -> Self {
+        Self { window_ms: 35.0 }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FireCfg {
+    /// Cooling multiplier: >1 = shorter flames, <1 = taller.
+    pub cooling: f32,
+}
+
+impl Default for FireCfg {
+    fn default() -> Self {
+        Self { cooling: 1.0 }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ParticlesCfg {
+    /// Spawn-rate multiplier for bursts and drizzle.
+    pub density: f32,
+}
+
+impl Default for ParticlesCfg {
+    fn default() -> Self {
+        Self { density: 1.0 }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RadialCfg {
+    /// Spokes around the full circle (rounded down to even).
+    pub spokes: usize,
+}
+
+impl Default for RadialCfg {
+    fn default() -> Self {
+        Self { spokes: 96 }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SpectrogramCfg {
+    /// Milliseconds per stored slice (two slices per terminal row) — the
+    /// scroll speed.
+    pub slice_ms: f32,
+    /// Display threshold: values below this are not drawn.
+    pub floor: f32,
+    /// 0..0.9: how much older rows fade toward black (RGB themes only).
+    pub fade: f32,
+}
+
+impl Default for SpectrogramCfg {
+    fn default() -> Self {
+        Self {
+            slice_ms: 33.0,
+            floor: 0.03,
+            fade: 0.0,
+        }
+    }
 }
 
 impl Default for Config {
@@ -56,6 +153,13 @@ impl Default for Config {
             fft_size: 2048,
             freq_min: 30.0,
             freq_max: 16000.0,
+            band_agg: "energy".into(),
+            mirror: MirrorCfg::default(),
+            scope: ScopeCfg::default(),
+            fire: FireCfg::default(),
+            particles: ParticlesCfg::default(),
+            radial: RadialCfg::default(),
+            spectrogram: SpectrogramCfg::default(),
         }
     }
 }
@@ -98,5 +202,18 @@ impl Config {
         }
         self.freq_min = self.freq_min.clamp(10.0, 500.0);
         self.freq_max = self.freq_max.clamp(self.freq_min * 4.0, 22000.0);
+        if BandAgg::from_key(&self.band_agg).is_none() {
+            self.band_agg = "energy".into();
+        }
+        if !["lr", "ms"].contains(&self.mirror.mode.to_ascii_lowercase().as_str()) {
+            self.mirror.mode = "lr".into();
+        }
+        self.scope.window_ms = self.scope.window_ms.clamp(5.0, 200.0);
+        self.fire.cooling = self.fire.cooling.clamp(0.25, 4.0);
+        self.particles.density = self.particles.density.clamp(0.1, 4.0);
+        self.radial.spokes = self.radial.spokes.clamp(24, 256) & !1;
+        self.spectrogram.slice_ms = self.spectrogram.slice_ms.clamp(10.0, 200.0);
+        self.spectrogram.floor = self.spectrogram.floor.clamp(0.005, 0.3);
+        self.spectrogram.fade = self.spectrogram.fade.clamp(0.0, 0.9);
     }
 }

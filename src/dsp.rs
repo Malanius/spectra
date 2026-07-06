@@ -10,6 +10,31 @@ pub const SMOOTHING_PRESETS: [(&str, f32, f32); 3] = [
     ("smooth", 0.45, 0.10),
 ];
 
+/// How the FFT bins inside one display band are folded into a single value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BandAgg {
+    /// Total band energy (default) — flat response for pink-ish material.
+    Energy,
+    /// Loudest bin — punchy, but narrow spikes dominate.
+    Max,
+    /// Mean bin energy — smooth, recessed treble.
+    Avg,
+    /// Peak-weighted average — between Max and Avg.
+    Hybrid,
+}
+
+impl BandAgg {
+    pub fn from_key(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "energy" | "sum" => Some(Self::Energy),
+            "max" | "peak" => Some(Self::Max),
+            "avg" | "mean" => Some(Self::Avg),
+            "hybrid" | "peak-avg" => Some(Self::Hybrid),
+            _ => None,
+        }
+    }
+}
+
 /// Displayed dynamic range in dB (bar bottom to bar top).
 const RANGE_DB: f32 = 64.0;
 /// Seconds a peak cap holds before it starts falling.
@@ -41,6 +66,7 @@ pub struct Analyzer {
     pub gain_db: f32,
     pub auto_gain: bool,
     pub smoothing: usize,
+    pub agg: BandAgg,
     agc_ceil_db: f32,
 }
 
@@ -85,6 +111,7 @@ impl Analyzer {
             gain_db,
             auto_gain,
             smoothing: smoothing.min(SMOOTHING_PRESETS.len() - 1),
+            agg: BandAgg::Energy,
             agc_ceil_db: -20.0,
         };
         a.set_bars(n_bars);
@@ -227,14 +254,25 @@ impl Analyzer {
         for (i, &(lo, hi)) in self.bands.iter().enumerate() {
             let lo_i = (lo.ceil() as usize).min(max_bin);
             let hi_i = (hi.floor() as usize).min(max_bin);
-            // Total energy per band rather than the loudest bin: narrow
-            // spikes no longer dominate, and since bands are log-spaced
-            // (constant fraction of an octave) this is inherently flat for
-            // pink-ish program material — no extra tilt compensation needed.
+            // Fold the band's bins per the configured aggregation. Energy
+            // (sum) is the default: narrow spikes don't dominate, and since
+            // bands are log-spaced (constant fraction of an octave) it is
+            // inherently flat for pink-ish program material.
             let power = if lo_i <= hi_i && hi_i > 0 {
-                (lo_i..=hi_i)
-                    .map(|b| self.spectrum[b].norm_sqr())
-                    .sum::<f32>()
+                let mut sum = 0.0f32;
+                let mut max = 0.0f32;
+                for b in lo_i..=hi_i {
+                    let p = self.spectrum[b].norm_sqr();
+                    sum += p;
+                    max = max.max(p);
+                }
+                let avg = sum / (hi_i - lo_i + 1) as f32;
+                match self.agg {
+                    BandAgg::Energy => sum,
+                    BandAgg::Max => max,
+                    BandAgg::Avg => avg,
+                    BandAgg::Hybrid => 0.6 * max + 0.4 * avg,
+                }
             } else {
                 // Band narrower than one bin: interpolate at its center.
                 let c = ((lo + hi) * 0.5).clamp(0.0, max_bin as f32);

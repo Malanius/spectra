@@ -1,10 +1,12 @@
+use std::collections::VecDeque;
+
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 
 use super::{AudioFrame, OnsetDetector, Rng, Visualizer};
 use crate::config::Config;
-use crate::dsp::Analyzer;
+use crate::dsp::SMOOTHING_PRESETS;
 use crate::theme::ThemeId;
 
 /// Ripples on a lake: bass hits spawn large ripples near the center, treble
@@ -12,11 +14,15 @@ use crate::theme::ThemeId;
 /// an expanding wave packet; overlapping packets interfere, and the summed
 /// surface height picks the glyph (intensity) and color (crest vs. trough).
 pub struct Ripples {
-    analyzer: Analyzer,
-    ripples: Vec<Ripple>,
-    onset: OnsetDetector,
+    ripples: VecDeque<Ripple>,
     rain_acc: f32,
     rng: Rng,
+    onset: OnsetDetector,
+    /// Feature followers smoothed with the user's preset, so the lake keeps
+    /// the calmer character it had when it ran its own smoothed analyzer.
+    bass_s: f32,
+    treble_s: f32,
+    level_s: f32,
 }
 
 struct Ripple {
@@ -35,34 +41,26 @@ const WAVELEN: f32 = 4.5;
 const SIGMA: f32 = 1.7;
 /// Amplitude decay per second.
 const DECAY: f32 = 0.6;
-/// Number of coarse analyzer bands driving the emitters.
-const BANDS: usize = 24;
 const MAX_RIPPLES: usize = 28;
 
 impl Ripples {
-    pub fn new(cfg: &Config) -> Self {
+    pub fn new(_cfg: &Config) -> Self {
         Self {
-            analyzer: Analyzer::new(
-                cfg.fft_size,
-                BANDS,
-                cfg.freq_min,
-                cfg.freq_max,
-                cfg.gain_db,
-                cfg.auto_gain,
-                cfg.smoothing,
-            ),
-            ripples: Vec::new(),
-            onset: OnsetDetector::new(1.3, 0.25, 0.13),
+            ripples: VecDeque::with_capacity(MAX_RIPPLES),
             rain_acc: 0.0,
             rng: Rng(0x9e3779b97f4a7c15),
+            onset: OnsetDetector::new(1.3, 0.25, 0.13),
+            bass_s: 0.0,
+            treble_s: 0.0,
+            level_s: 0.0,
         }
     }
 
     fn spawn(&mut self, ox: f32, oy: f32, strength: f32) {
         if self.ripples.len() >= MAX_RIPPLES {
-            self.ripples.remove(0); // drop the oldest
+            self.ripples.pop_front(); // drop the oldest
         }
-        self.ripples.push(Ripple {
+        self.ripples.push_back(Ripple {
             ox,
             oy,
             age: 0.0,
@@ -73,21 +71,24 @@ impl Ripples {
 
 impl Visualizer for Ripples {
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, _max_bars: usize, dt: f32) {
-        self.analyzer.gain_db = cfg.gain_db;
-        self.analyzer.auto_gain = cfg.auto_gain;
-        self.analyzer.smoothing = cfg.smoothing;
-        self.analyzer.update(frame.mono, frame.rate, dt, frame.silent);
-
-        let bars = self.analyzer.bars();
-        let n = bars.len();
-        let avg = |s: &[f32]| s.iter().sum::<f32>() / s.len().max(1) as f32;
-        let bass = avg(&bars[..n / 4]);
-        let treble = avg(&bars[n / 2..]);
-        let level = avg(bars);
+        // Smooth the shared (fast-attack) features with the user's preset —
+        // same asymmetric attack/decay math the analyzer applies to bars.
+        let (_, attack, decay) = SMOOTHING_PRESETS[cfg.smoothing];
+        let scale = (dt * 60.0).clamp(0.25, 4.0);
+        let follow = |current: &mut f32, target: f32| {
+            let a = if target > *current { attack } else { decay };
+            *current += (target - *current) * (1.0 - (1.0 - a).powf(scale));
+        };
+        follow(&mut self.bass_s, frame.features.bass);
+        follow(&mut self.treble_s, frame.features.treble);
+        follow(&mut self.level_s, frame.features.level);
+        let (treble, level) = (self.treble_s, self.level_s);
 
         // Bass onsets: a jump well above the recent average makes a big
-        // ripple somewhere near the middle of the lake.
-        if let Some(strength) = self.onset.feed(bass, frame.silent, dt) {
+        // ripple somewhere near the middle of the lake. Detected on the
+        // smoothed bass, so the preset also shapes how eagerly it fires.
+        let bass_s = self.bass_s;
+        if let Some(strength) = self.onset.feed(bass_s, frame.silent, dt) {
             let (jx, jy) = (self.rng.f32(), self.rng.f32());
             self.spawn(
                 0.5 + (jx - 0.5) * 0.4,

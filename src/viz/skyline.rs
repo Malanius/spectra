@@ -4,7 +4,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 
-use super::{put_hspan, rms_db, AudioFrame, LevelNorm, Visualizer, EIGHTHS};
+use super::{put_hspan, AudioFrame, LevelNorm, Visualizer, EIGHTHS};
 use crate::config::Config;
 use crate::theme::ThemeId;
 
@@ -41,10 +41,10 @@ impl Visualizer for Skyline {
         let (rms, peak) = if frame.silent {
             (0.0, 0.0)
         } else {
-            let db = rms_db(frame.mono);
-            let rms = self.norm.norm(db, cfg.auto_gain, cfg.gain_db, RANGE_DB, dt);
-            let pk = frame.mono.iter().fold(0.0f32, |a, &s| a.max(s.abs()));
-            let peak_db = 20.0 * (pk + 1e-9).log10();
+            let rms =
+                self.norm
+                    .norm(frame.features.rms_db, cfg.auto_gain, cfg.gain_db, RANGE_DB, dt);
+            let peak_db = 20.0 * (frame.features.peak + 1e-9).log10();
             let peak = self
                 .norm
                 .norm(peak_db, cfg.auto_gain, cfg.gain_db, RANGE_DB, 0.0);

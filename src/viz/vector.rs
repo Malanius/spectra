@@ -14,6 +14,8 @@ pub struct Vector {
     /// Persistence field in a fixed square virtual resolution.
     field: Vec<f32>,
     gain: f32,
+    /// Smoothed L/R correlation, -1 (out of phase) .. +1 (mono).
+    corr: f32,
 }
 
 /// Virtual pixel grid edge (square). Braille dots are ~square on screen, so
@@ -27,6 +29,7 @@ impl Vector {
         Self {
             field: vec![0.0; N * N],
             gain: 1.0,
+            corr: 0.0,
         }
     }
 }
@@ -45,11 +48,7 @@ impl Visualizer for Vector {
         }
 
         // Auto-scale on the recent peak; manual gain stacks on top.
-        let peak = frame
-            .mono
-            .iter()
-            .fold(0.0f32, |a, &s| a.max(s.abs()))
-            .max(1e-4);
+        let peak = frame.features.peak.max(1e-4);
         let target = (0.85 / peak).clamp(0.5, 30.0);
         let k = if target < self.gain {
             (dt * 8.0).min(1.0)
@@ -59,10 +58,21 @@ impl Visualizer for Vector {
         self.gain += (target - self.gain) * k;
         let scale = self.gain * 10f32.powf(cfg.gain_db / 20.0);
 
-        // Plot the freshest slice of samples (~one frame's worth).
+        // Plot the freshest slice of samples (~one frame's worth), and
+        // measure the L/R correlation over the same slice.
         let want = ((frame.rate as f32 * dt) as usize + 64).min(frame.left.len());
         let start = frame.left.len() - want;
         let half = (N / 2) as f32;
+        let (mut ll, mut rr, mut lr) = (0.0f32, 0.0f32, 0.0f32);
+        for (&l, &r) in frame.left[start..].iter().zip(&frame.right[start..]) {
+            ll += l * l;
+            rr += r * r;
+            lr += l * r;
+        }
+        if ll * rr > 1e-12 {
+            let c = lr / (ll * rr).sqrt();
+            self.corr += (c - self.corr) * (dt * 8.0).min(1.0);
+        }
         for (&l, &r) in frame.left[start..].iter().zip(&frame.right[start..]) {
             // Rotate 45°: x = side (L-R), y = mid (L+R).
             let x = (l - r) * std::f32::consts::FRAC_1_SQRT_2 * scale;
@@ -117,6 +127,31 @@ impl Visualizer for Vector {
             buf[(area.x + 1, area.y + area.height / 2)]
                 .set_symbol("S")
                 .set_style(style);
+        }
+
+        // Correlation meter along the bottom: +1 mono … 0 wide … −1 phase
+        // problems.
+        if area.width >= 24 && area.height >= 7 {
+            let meter_w = (area.width / 3).clamp(11, 41) | 1; // odd width
+            let x0 = area.x + (area.width - meter_w) / 2;
+            let y = area.y + area.height - 1;
+            let dim = Style::default().fg(theme.dim());
+            for i in 0..meter_w {
+                let sym = if i == meter_w / 2 { "┼" } else { "─" };
+                buf[(x0 + i, y)].set_symbol(sym).set_style(dim);
+            }
+            if x0 >= area.x + 3 {
+                for (j, ch) in "-1".chars().enumerate() {
+                    buf[(x0 - 3 + j as u16, y)].set_char(ch).set_style(dim);
+                }
+                for (j, ch) in "+1".chars().enumerate() {
+                    buf[(x0 + meter_w + 1 + j as u16, y)].set_char(ch).set_style(dim);
+                }
+            }
+            let pos = ((self.corr + 1.0) / 2.0 * (meter_w - 1) as f32).round() as u16;
+            buf[(x0 + pos.min(meter_w - 1), y)]
+                .set_symbol("●")
+                .set_style(Style::default().fg(theme.accent()));
         }
     }
 }

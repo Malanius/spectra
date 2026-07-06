@@ -1,21 +1,22 @@
+use std::collections::VecDeque;
+
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 
 use super::{AudioFrame, OnsetDetector, Rng, Visualizer};
 use crate::config::Config;
-use crate::dsp::Analyzer;
 use crate::theme::ThemeId;
 
 /// Starfield: beats fire particle bursts from the center; treble drizzles
 /// slow drifters from random spots. Particles fade through the theme
 /// gradient as they age.
 pub struct Particles {
-    analyzer: Analyzer,
-    particles: Vec<Particle>,
+    particles: VecDeque<Particle>,
     onset: OnsetDetector,
     rng: Rng,
     drizzle: f32,
+    cap: usize,
 }
 
 struct Particle {
@@ -31,52 +32,38 @@ struct Particle {
     strength: f32,
 }
 
-const BANDS: usize = 24;
-const MAX_PARTICLES: usize = 320;
+const BASE_MAX_PARTICLES: f32 = 320.0;
 
 impl Particles {
-    pub fn new(cfg: &Config) -> Self {
+    pub fn new(_cfg: &Config) -> Self {
         Self {
-            analyzer: Analyzer::new(
-                cfg.fft_size,
-                BANDS,
-                cfg.freq_min,
-                cfg.freq_max,
-                cfg.gain_db,
-                cfg.auto_gain,
-                0, // always fast attack: onsets vanish on smoothed bars
-            ),
-            particles: Vec::new(),
+            particles: VecDeque::new(),
+            // More sensitive than the shared feature onset: bursts should
+            // fire on softer transients than other styles' beat effects.
             onset: OnsetDetector::new(1.12, 0.12, 0.13),
             rng: Rng(0xa5a5_1234_dead_beef),
             drizzle: 0.0,
+            cap: BASE_MAX_PARTICLES as usize,
         }
     }
 
     fn spawn(&mut self, p: Particle) {
-        if self.particles.len() >= MAX_PARTICLES {
-            self.particles.remove(0);
+        if self.particles.len() >= self.cap {
+            self.particles.pop_front(); // drop the oldest
         }
-        self.particles.push(p);
+        self.particles.push_back(p);
     }
 }
 
 impl Visualizer for Particles {
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, _max_bars: usize, dt: f32) {
-        self.analyzer.gain_db = cfg.gain_db;
-        self.analyzer.auto_gain = cfg.auto_gain;
-        // Deliberately not following cfg.smoothing: beat detection needs the
-        // raw transients that the smooth presets are designed to hide.
-        self.analyzer.update(frame.mono, frame.rate, dt, frame.silent);
-        let bars = self.analyzer.bars();
-        let n = bars.len();
-        let avg = |s: &[f32]| s.iter().sum::<f32>() / s.len().max(1) as f32;
-        let bass = avg(&bars[..n / 4]);
-        let treble = avg(&bars[n / 2..]);
+        let density = cfg.particles.density;
+        self.cap = ((BASE_MAX_PARTICLES * density) as usize).clamp(64, 1024);
+        let (bass, treble) = (frame.features.bass, frame.features.treble);
 
         // Beat → radial burst from the center, bass hues, speed by energy.
         if let Some(strength) = self.onset.feed(bass, frame.silent, dt) {
-            let count = 16 + (strength * 22.0) as usize;
+            let count = ((16.0 + strength * 22.0) * density) as usize;
             for _ in 0..count {
                 let ang = self.rng.f32() * std::f32::consts::TAU;
                 let speed = (0.16 + 0.5 * strength) * (0.5 + self.rng.f32());
@@ -99,7 +86,7 @@ impl Visualizer for Particles {
 
         // Drizzle: activity anywhere in the spectrum keeps stars drifting.
         if !frame.silent {
-            self.drizzle += dt * (16.0 * treble + 6.0 * bass);
+            self.drizzle += dt * (16.0 * treble + 6.0 * bass) * density;
         }
         while self.drizzle >= 1.0 {
             self.drizzle -= 1.0;

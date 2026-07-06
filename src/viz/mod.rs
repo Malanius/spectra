@@ -19,6 +19,21 @@ use ratatui::style::{Color, Style};
 use crate::config::Config;
 use crate::theme::ThemeId;
 
+/// Summary features computed once per frame from the mono mix, so styles
+/// that only need coarse levels don't each run their own analyzer.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AudioFeatures {
+    /// Band-group averages from a fast-attack 24-band analyzer, 0..1.
+    pub bass: f32,
+    pub mid: f32,
+    pub treble: f32,
+    pub level: f32,
+    /// RMS of the current window in dBFS.
+    pub rms_db: f32,
+    /// Absolute sample peak of the current window, linear.
+    pub peak: f32,
+}
+
 /// One analysis window of audio, shared by all visualizer styles.
 pub struct AudioFrame<'a> {
     pub mono: &'a [f32],
@@ -27,6 +42,7 @@ pub struct AudioFrame<'a> {
     pub rate: u32,
     /// True when no fresh samples are arriving (paused / suspended stream).
     pub silent: bool,
+    pub features: AudioFeatures,
 }
 
 /// A visualization style. To add a new one: implement this trait and add

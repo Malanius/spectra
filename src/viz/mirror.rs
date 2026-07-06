@@ -4,14 +4,18 @@ use ratatui::style::{Modifier, Style};
 
 use super::{bar_layout, put_hspan, AudioFrame, Visualizer, EIGHTHS};
 use crate::config::Config;
-use crate::dsp::Analyzer;
+use crate::dsp::{Analyzer, BandAgg};
 use crate::theme::ThemeId;
 
-/// Old-deck stereo view: left channel grows up from a center line, right
-/// channel grows down, each with its own peak caps.
+/// Old-deck stereo view: two spectra around a center line, each with its
+/// own peak caps. In "lr" mode the left channel grows up and the right
+/// grows down; in "ms" mode it is mid (up) versus side (down), which makes
+/// stereo width directly visible.
 pub struct Mirror {
     left: Analyzer,
     right: Analyzer,
+    /// Scratch for the side (L−R) signal in "ms" mode.
+    side_buf: Vec<f32>,
 }
 
 impl Mirror {
@@ -30,6 +34,7 @@ impl Mirror {
         Self {
             left: mk(),
             right: mk(),
+            side_buf: Vec::new(),
         }
     }
 }
@@ -37,11 +42,23 @@ impl Mirror {
 impl Visualizer for Mirror {
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, max_bars: usize, dt: f32) {
         let n = cfg.bars.clamp(4, max_bars);
-        for (analyzer, samples) in [(&mut self.left, frame.left), (&mut self.right, frame.right)]
-        {
+        let ms = cfg.mirror.mode.eq_ignore_ascii_case("ms");
+        if ms {
+            self.side_buf.clear();
+            self.side_buf
+                .extend(frame.left.iter().zip(frame.right).map(|(l, r)| (l - r) * 0.5));
+        }
+        let (top, bottom): (&[f32], &[f32]) = if ms {
+            (frame.mono, &self.side_buf)
+        } else {
+            (frame.left, frame.right)
+        };
+        let agg = BandAgg::from_key(&cfg.band_agg).unwrap_or(BandAgg::Energy);
+        for (analyzer, samples) in [(&mut self.left, top), (&mut self.right, bottom)] {
             analyzer.gain_db = cfg.gain_db;
             analyzer.auto_gain = cfg.auto_gain;
             analyzer.smoothing = cfg.smoothing;
+            analyzer.agg = agg;
             analyzer.set_bars(n);
             analyzer.update(samples, frame.rate, dt, frame.silent);
         }
@@ -78,9 +95,16 @@ impl Visualizer for Mirror {
 
         // Channel tags in the top/bottom-left corners when there is room.
         if area.width >= 4 && area.height >= 7 {
-            buf[(area.x + 1, area.y)].set_char('L').set_style(line_style);
+            let (top_tag, bottom_tag) = if cfg.mirror.mode.eq_ignore_ascii_case("ms") {
+                ('M', 'S')
+            } else {
+                ('L', 'R')
+            };
+            buf[(area.x + 1, area.y)]
+                .set_char(top_tag)
+                .set_style(line_style);
             buf[(area.x + 1, area.y + area.height - 1)]
-                .set_char('R')
+                .set_char(bottom_tag)
                 .set_style(line_style);
         }
     }

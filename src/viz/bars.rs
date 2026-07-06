@@ -4,7 +4,7 @@ use ratatui::style::Style;
 
 use super::{bar_layout, put_hspan, AudioFrame, Visualizer, EIGHTHS};
 use crate::config::Config;
-use crate::dsp::Analyzer;
+use crate::dsp::{Analyzer, BandAgg};
 use crate::theme::ThemeId;
 
 /// Classic hi-fi look: vertical bars with falling peak-hold caps and a
@@ -34,6 +34,7 @@ impl Visualizer for Bars {
         self.analyzer.gain_db = cfg.gain_db;
         self.analyzer.auto_gain = cfg.auto_gain;
         self.analyzer.smoothing = cfg.smoothing;
+        self.analyzer.agg = BandAgg::from_key(&cfg.band_agg).unwrap_or(BandAgg::Energy);
         self.analyzer.set_bars(cfg.bars.clamp(4, max_bars));
         self.analyzer.update(frame.mono, frame.rate, dt, frame.silent);
     }

@@ -8,11 +8,11 @@ use ratatui::DefaultTerminal;
 
 use crate::audio::{enumerate_devices, AudioDevice, Capture, CaptureTarget};
 use crate::config::Config;
-use crate::dsp::SMOOTHING_PRESETS;
+use crate::dsp::{Analyzer, SMOOTHING_PRESETS};
 use crate::nowplaying::{self, NowPlaying};
 use crate::theme::ThemeId;
 use crate::ui;
-use crate::viz::{self, AudioFrame, Visualizer};
+use crate::viz::{self, AudioFeatures, AudioFrame, Visualizer};
 
 const FRAME: Duration = Duration::from_millis(16);
 /// No fresh samples for this long → treat the stream as silent.
@@ -51,9 +51,14 @@ pub struct App {
     /// trimmed to the FFT window length.
     history_left: VecDeque<f32>,
     history_right: VecDeque<f32>,
+    /// Shared per-frame feature extraction (see `AudioFeatures`).
+    feature_analyzer: Analyzer,
     last_pushed: u64,
     last_data_at: Instant,
 }
+
+/// Bands in the shared feature analyzer.
+const FEATURE_BANDS: usize = 24;
 
 impl App {
     pub fn new(cfg: Config, initial: CaptureTarget, device_label: String) -> Result<Self> {
@@ -64,6 +69,15 @@ impl App {
             .position(|s| s.id == cfg.visualizer)
             .unwrap_or(0);
         let fft_size = cfg.fft_size;
+        let feature_analyzer = Analyzer::new(
+            fft_size,
+            FEATURE_BANDS,
+            cfg.freq_min,
+            cfg.freq_max,
+            cfg.gain_db,
+            cfg.auto_gain,
+            0, // fast attack: features feed beat detection
+        );
         let mut app = Self {
             cfg,
             theme,
@@ -81,6 +95,7 @@ impl App {
             right_buf: vec![0.0; fft_size],
             history_left: VecDeque::with_capacity(fft_size + 1),
             history_right: VecDeque::with_capacity(fft_size + 1),
+            feature_analyzer,
             last_pushed: 0,
             last_data_at: Instant::now(),
         };
@@ -179,12 +194,34 @@ impl App {
             self.right_buf[pad + i] = r;
             self.mono_buf[pad + i] = (l + r) * 0.5;
         }
+        // Shared per-frame features, computed once for all styles.
+        self.feature_analyzer.gain_db = self.cfg.gain_db;
+        self.feature_analyzer.auto_gain = self.cfg.auto_gain;
+        self.feature_analyzer.update(&self.mono_buf, rate, dt, silent);
+        let fb = self.feature_analyzer.bars();
+        let bands = fb.len();
+        let avg = |s: &[f32]| s.iter().sum::<f32>() / s.len().max(1) as f32;
+        let bass = avg(&fb[..bands / 4]);
+        let features = AudioFeatures {
+            bass,
+            mid: avg(&fb[bands / 4..bands / 2]),
+            treble: avg(&fb[bands / 2..]),
+            level: avg(fb),
+            rms_db: if silent {
+                -120.0
+            } else {
+                viz::rms_db(&self.mono_buf)
+            },
+            peak: self.mono_buf.iter().fold(0.0f32, |a, &s| a.max(s.abs())),
+        };
+
         let frame = AudioFrame {
             mono: &self.mono_buf,
             left: &self.left_buf,
             right: &self.right_buf,
             rate,
             silent,
+            features,
         };
         self.visualizers[self.viz_idx].update(&frame, &self.cfg, self.max_bars, dt);
     }

@@ -66,7 +66,8 @@ impl Visualizer for Fire {
         // the H rows, so keep it small.
         // Linear in level so flame height keeps tracking dynamics instead of
         // saturating at full screen on ordinary program material.
-        let cool_base = 0.010 + 0.040 * (1.0 - self.level);
+        // cfg.fire.cooling scales it: >1 = shorter flames, <1 = taller.
+        let cool_base = (0.010 + 0.040 * (1.0 - self.level)) * cfg.fire.cooling;
         for y in (1..H).rev() {
             for x in 0..W {
                 let below = &self.heat[(y - 1) * W..y * W];

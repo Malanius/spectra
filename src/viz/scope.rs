@@ -16,9 +16,6 @@ pub struct Scope {
     gain: f32,
 }
 
-/// Time window shown on screen.
-const WINDOW_S: f32 = 0.035;
-
 impl Scope {
     pub fn new(_cfg: &Config) -> Self {
         Self {
@@ -45,11 +42,7 @@ impl Visualizer for Scope {
 
         // Slow auto-scale so quiet material still shows a visible trace;
         // manual gain stacks on top.
-        let peak = frame
-            .mono
-            .iter()
-            .fold(0.0f32, |a, &s| a.max(s.abs()))
-            .max(1e-4);
+        let peak = frame.features.peak.max(1e-4);
         let target = (0.9 / peak).clamp(0.5, 30.0);
         let k = if target < self.gain {
             (dt * 8.0).min(1.0)
@@ -67,6 +60,7 @@ impl Visualizer for Scope {
         let stereo = area.height >= 14;
         let manual = 10f32.powf(cfg.gain_db / 20.0);
         let scale = self.gain * manual;
+        let window_s = cfg.scope.window_ms / 1000.0;
 
         if stereo {
             let half = Rect {
@@ -78,8 +72,8 @@ impl Visualizer for Scope {
                 height: area.height - area.height / 2,
                 ..area
             };
-            draw_trace(&self.left, self.rate, scale, half, buf, theme, "L");
-            draw_trace(&self.right, self.rate, scale, lower, buf, theme, "R");
+            draw_trace(&self.left, self.rate, scale, window_s, half, buf, theme, "L");
+            draw_trace(&self.right, self.rate, scale, window_s, lower, buf, theme, "R");
         } else {
             // Mono: average the channels on the fly.
             let mono: Vec<f32> = self
@@ -88,15 +82,17 @@ impl Visualizer for Scope {
                 .zip(&self.right)
                 .map(|(l, r)| (l + r) * 0.5)
                 .collect();
-            draw_trace(&mono, self.rate, scale, area, buf, theme, "");
+            draw_trace(&mono, self.rate, scale, window_s, area, buf, theme, "");
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_trace(
     samples: &[f32],
     rate: u32,
     scale: f32,
+    window_s: f32,
     area: Rect,
     buf: &mut Buffer,
     theme: ThemeId,
@@ -112,7 +108,7 @@ fn draw_trace(
     }
 
     if rate > 0 && !samples.is_empty() {
-        let window = ((rate as f32 * WINDOW_S) as usize).clamp(64, samples.len());
+        let window = ((rate as f32 * window_s) as usize).clamp(64, samples.len());
         let start = trigger_offset(samples, window);
         let view = &samples[start..(start + window).min(samples.len())];
 

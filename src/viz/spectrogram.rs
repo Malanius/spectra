@@ -20,8 +20,6 @@ pub struct Spectrogram {
 
 /// Fixed number of frequency columns stored per slice.
 const BANDS: usize = 96;
-/// Seconds between stored slices (two slices per terminal row).
-const SLICE: f32 = 0.033;
 const MAX_SLICES: usize = 500;
 
 impl Spectrogram {
@@ -48,9 +46,10 @@ impl Visualizer for Spectrogram {
         self.analyzer.auto_gain = cfg.auto_gain;
         self.analyzer.update(frame.mono, frame.rate, dt, frame.silent);
 
+        let slice = cfg.spectrogram.slice_ms / 1000.0;
         self.acc += dt;
-        if self.acc >= SLICE {
-            self.acc %= SLICE;
+        if self.acc >= slice {
+            self.acc %= slice;
             self.history.push_back(self.analyzer.bars().to_vec());
             if self.history.len() > MAX_SLICES {
                 self.history.pop_front();
@@ -58,18 +57,24 @@ impl Visualizer for Spectrogram {
         }
     }
 
-    fn render(&self, area: Rect, buf: &mut Buffer, theme: ThemeId, _cfg: &Config) {
+    fn render(&self, area: Rect, buf: &mut Buffer, theme: ThemeId, cfg: &Config) {
         if area.width == 0 || area.height == 0 || self.history.is_empty() {
             return;
         }
         let total_px = area.height as usize * 2; // two slices per row
         let len = self.history.len();
-        let color = |v: f32| -> Option<Color> {
-            if v < 0.03 {
-                None
-            } else {
-                Some(theme.bar_color(v))
+        let floor = cfg.spectrogram.floor;
+        let fade = cfg.spectrogram.fade;
+        // Soft edge above the floor (quiet content dims out instead of
+        // popping) plus optional fading of older rows. Both only darken RGB
+        // theme colors; ANSI palette colors pass through.
+        let color = |v: f32, age: f32| -> Option<Color> {
+            if v < floor {
+                return None;
             }
+            let soft = ((v - floor) / floor).clamp(0.25, 1.0);
+            let k = soft * (1.0 - fade * age);
+            Some(crate::theme::dim_color(theme.bar_color(v), k.max(0.05)))
         };
 
         for row in 0..area.height as usize {
@@ -80,8 +85,10 @@ impl Visualizer for Spectrogram {
                 let slice_at = |px: usize| -> Option<&Vec<f32>> {
                     (len + px).checked_sub(total_px).map(|i| &self.history[i])
                 };
-                let upper = slice_at(row * 2).and_then(|s| color(s[band]));
-                let lower = slice_at(row * 2 + 1).and_then(|s| color(s[band]));
+                let age_of = |px: usize| (total_px - 1 - px) as f32 / total_px as f32;
+                let upper = slice_at(row * 2).and_then(|s| color(s[band], age_of(row * 2)));
+                let lower =
+                    slice_at(row * 2 + 1).and_then(|s| color(s[band], age_of(row * 2 + 1)));
                 let cell = &mut buf[(area.x + col as u16, area.y + row as u16)];
                 match (upper, lower) {
                     (Some(u), Some(l)) => {

@@ -197,6 +197,22 @@ impl ThemeId {
     }
 }
 
+/// Scale an RGB color's brightness by `k` (0..1). ANSI palette colors pass
+/// through unchanged — the terminal owns their exact values.
+pub fn dim_color(c: Color, k: f32) -> Color {
+    match c {
+        Color::Rgb(r, g, b) => {
+            let k = k.clamp(0.0, 1.0);
+            Color::Rgb(
+                (r as f32 * k).round() as u8,
+                (g as f32 * k).round() as u8,
+                (b as f32 * k).round() as u8,
+            )
+        }
+        other => other,
+    }
+}
+
 fn lerp_rgb(a: Rgb, b: Rgb, t: f32) -> Color {
     let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
     Color::Rgb(l(a.0, b.0), l(a.1, b.1), l(a.2, b.2))

@@ -3,7 +3,6 @@ use ratatui::layout::Rect;
 
 use super::{AudioFrame, OnsetDetector, Visualizer};
 use crate::config::Config;
-use crate::dsp::Analyzer;
 use crate::theme::ThemeId;
 
 /// Morphing Julia set. The constant `c` travels along the boundary of the
@@ -13,7 +12,6 @@ use crate::theme::ThemeId;
 /// cycles the palette. Escape times are smooth-colored through the theme
 /// gradient; the set interior stays dark.
 pub struct Fractal {
-    analyzer: Analyzer,
     onset: OnsetDetector,
     /// Angle of `c` along the cardioid.
     theta: f32,
@@ -32,23 +30,14 @@ pub struct Fractal {
     treble_s: f32,
 }
 
-const BANDS: usize = 24;
 const MAX_ITER: u32 = 40;
 
 impl Fractal {
-    pub fn new(cfg: &Config) -> Self {
+    pub fn new(_cfg: &Config) -> Self {
         Self {
-            analyzer: Analyzer::new(
-                cfg.fft_size,
-                BANDS,
-                cfg.freq_min,
-                cfg.freq_max,
-                cfg.gain_db,
-                cfg.auto_gain,
-                0, // fast attack; this style smooths its own drive values
-            ),
             // Strict trigger with a long refractory: the fractal's beat
             // effects are dramatic, so they must fire on real kicks only.
+            // (Own detector — the shared feature onset fires more often.)
             onset: OnsetDetector::new(1.3, 0.25, 0.28),
             theta: 0.35,
             pop: 0.0,
@@ -66,17 +55,9 @@ impl Fractal {
 }
 
 impl Visualizer for Fractal {
-    fn update(&mut self, frame: &AudioFrame, cfg: &Config, _max_bars: usize, dt: f32) {
-        self.analyzer.gain_db = cfg.gain_db;
-        self.analyzer.auto_gain = cfg.auto_gain;
-        self.analyzer.update(frame.mono, frame.rate, dt, frame.silent);
-        let bars = self.analyzer.bars();
-        let n = bars.len();
-        let avg = |s: &[f32]| s.iter().sum::<f32>() / s.len().max(1) as f32;
-        let bass = avg(&bars[..n / 4]);
-        let mid = avg(&bars[n / 4..n / 2]);
-        let treble = avg(&bars[n / 2..]);
-        let level = avg(bars);
+    fn update(&mut self, frame: &AudioFrame, _cfg: &Config, _max_bars: usize, dt: f32) {
+        let f = &frame.features;
+        let (bass, mid, treble, level) = (f.bass, f.mid, f.treble, f.level);
 
         // Two bass followers: a slow one for the overall drive and a fast
         // one whose difference from it adds frame-level shimmer.

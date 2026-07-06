@@ -15,8 +15,6 @@ pub struct Radial {
 }
 
 const BANDS: usize = 48;
-/// Spokes around the full circle (each band appears once per side).
-const SPOKES: usize = 96;
 
 impl Radial {
     pub fn new(cfg: &Config) -> Self {
@@ -47,10 +45,12 @@ impl Visualizer for Radial {
         self.pulse += (bass - self.pulse) * (dt * 10.0).min(1.0);
     }
 
-    fn render(&self, area: Rect, buf: &mut Buffer, theme: ThemeId, _cfg: &Config) {
+    fn render(&self, area: Rect, buf: &mut Buffer, theme: ThemeId, cfg: &Config) {
         if area.width < 6 || area.height < 4 {
             return;
         }
+        // Spokes around the full circle (each band appears once per side).
+        let spokes = cfg.radial.spokes.clamp(24, 256) & !1;
         let bars = self.analyzer.bars();
         let mut canvas = BrailleCanvas::new(area.width, area.height);
         let (wd, hd) = (canvas.width_dots(), canvas.height_dots());
@@ -58,17 +58,17 @@ impl Visualizer for Radial {
         let r_max = (wd.min(hd) as f32) / 2.0 - 1.0;
         let r_inner = r_max * (0.22 + 0.10 * self.pulse);
 
-        for spoke in 0..SPOKES {
+        for spoke in 0..spokes {
             // Mirror: 0 at the top, sweeping down both sides to the bottom.
-            let half = SPOKES / 2;
+            let half = spokes / 2;
             let band = if spoke < half {
                 spoke * BANDS / half
             } else {
-                (SPOKES - 1 - spoke) * BANDS / half
+                (spokes - 1 - spoke) * BANDS / half
             }
             .min(BANDS - 1);
             let v = bars[band];
-            let angle = spoke as f32 / SPOKES as f32 * std::f32::consts::TAU
+            let angle = spoke as f32 / spokes as f32 * std::f32::consts::TAU
                 - std::f32::consts::FRAC_PI_2;
             let (sin, cos) = angle.sin_cos();
             let len = v * (r_max - r_inner);
