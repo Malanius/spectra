@@ -17,6 +17,14 @@ serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 unicode-width = "0.2"
 
+# Offline frame renderer (`spectra render`), a dev tool for tuning styles.
+fontdue = { version = "0.9", optional = true }
+hound = { version = "3", optional = true }
+png = { version = "0.17", optional = true }
+
+[features]
+render = ["dep:fontdue", "dep:hound", "dep:png"]
+
 [profile.release]
 lto = true
 strip = true

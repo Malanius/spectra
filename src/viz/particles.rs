@@ -17,6 +17,9 @@ pub struct Particles {
     rng: Rng,
     drizzle: f32,
     cap: usize,
+    /// Strength of the burst fired this frame, 0 if none.
+    #[cfg_attr(not(feature = "render"), allow(dead_code))]
+    last_onset: f32,
 }
 
 struct Particle {
@@ -45,6 +48,7 @@ impl Particles {
             rng: Rng(0xa5a5_1234_dead_beef),
             drizzle: 0.0,
             cap: BASE_MAX_PARTICLES as usize,
+            last_onset: 0.0,
         }
     }
 
@@ -63,7 +67,9 @@ impl Visualizer for Particles {
         let (bass, treble) = (frame.features.bass, frame.features.treble);
 
         // Beat → radial burst from the center, bass hues, speed by energy.
+        self.last_onset = 0.0;
         if let Some(strength) = self.onset.feed(bass, frame.silent, dt) {
+            self.last_onset = strength;
             let count = ((30.0 + strength * 30.0) * density) as usize;
             for _ in 0..count {
                 let ang = self.rng.f32() * std::f32::consts::TAU;
@@ -123,6 +129,14 @@ impl Visualizer for Particles {
         }
         self.particles
             .retain(|p| p.age < p.life && (-0.05..1.05).contains(&p.x) && (-0.05..1.05).contains(&p.y));
+    }
+
+    #[cfg(feature = "render")]
+    fn probe(&self) -> Vec<(&'static str, f32)> {
+        vec![
+            ("particles", self.particles.len() as f32),
+            ("onset", self.last_onset),
+        ]
     }
 
     fn render(&self, area: Rect, buf: &mut Buffer, theme: ThemeId, _cfg: &Config) {

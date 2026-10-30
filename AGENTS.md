@@ -43,6 +43,7 @@ HEAD. That is normal, so don't create git branches or warn about it.
 | `src/config.rs` | `Config`, `sanitize()`, the `ConfigKey` trait, unit tests |
 | `src/theme.rs` | `ThemeId`, palettes, gradient lookup |
 | `src/nowplaying.rs` | Background MPRIS poller for the now-playing line |
+| `src/render.rs` | Offline frame renderer, dev tool (`--features render`) |
 | `src/viz/mod.rs` | `Visualizer` trait, `STYLES` registry, shared drawing helpers |
 | `src/viz/*.rs` | One file per visualization style |
 
@@ -112,6 +113,26 @@ output has opaque structs. Keep the git dependency. The 0.10 API uses
   capture thread reports the real source, and `App::check_linked_source`
   updates the header from it.
 - Sink monitors show up as links from the sink node itself.
+
+## Seeing what a style does
+
+`cargo build --release --features render` adds a `render` subcommand that
+runs a WAV file through the same feature extraction and styles as the app,
+at a fixed 60 fps, and writes PNGs you can look at:
+
+```sh
+pw-record -P '{ stream.capture.sink=true }' --rate 48000 --channels 2 --format s16 clip.wav
+./target/release/spectra render clip.wav --style ripples,particles --out dir/
+```
+
+Per style it writes contact sheets (`sheet_NNN.png`, a frame every 100 ms,
+outlined when an onset fired), `timeline.png` (input features against the
+style's internals) and `metrics.csv`. Styles report their internals through
+`Visualizer::probe`, which exists only with the feature; a probe named
+`*onset` draws as event ticks. Use `--start`/`--duration` to zoom in and
+`--font-size` for a closer look. It uses built-in config defaults unless
+given `--config`. Record with `pw-record` only for as long as needed (wrap
+it in `timeout`).
 
 ## Testing against real audio
 

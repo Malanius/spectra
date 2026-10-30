@@ -28,6 +28,9 @@ pub struct Fractal {
     mid_s: f32,
     level_s: f32,
     treble_s: f32,
+    /// Strength of the beat fired this frame, 0 if none.
+    #[cfg_attr(not(feature = "render"), allow(dead_code))]
+    last_onset: f32,
 }
 
 const MAX_ITER: u32 = 40;
@@ -49,6 +52,7 @@ impl Fractal {
             mid_s: 0.0,
             level_s: 0.0,
             treble_s: 0.0,
+            last_onset: 0.0,
         }
     }
 }
@@ -68,7 +72,9 @@ impl Visualizer for Fractal {
         self.treble_s += (treble - self.treble_s) * k;
         self.level_s += (level - self.level_s) * k;
 
+        self.last_onset = 0.0;
         if let Some(strength) = self.onset.feed(bass, frame.silent, dt) {
+            self.last_onset = strength;
             self.pop = (self.pop + 0.4 + strength * 0.4).min(1.0);
             self.zoom_pulse = 1.0;
             // Palette nudges on the kick, so beats read even in still shapes.
@@ -81,6 +87,11 @@ impl Visualizer for Fractal {
         self.rot += dt * (0.015 + 0.20 * self.mid_s + 0.3 * self.pop);
         self.color_phase += dt * (0.04 + 0.4 * self.treble_s);
         self.time += dt;
+    }
+
+    #[cfg(feature = "render")]
+    fn probe(&self) -> Vec<(&'static str, f32)> {
+        vec![("pop", self.pop), ("zoom_pulse", self.zoom_pulse), ("onset", self.last_onset)]
     }
 
     fn render(&self, area: Rect, buf: &mut Buffer, theme: ThemeId, _cfg: &Config) {

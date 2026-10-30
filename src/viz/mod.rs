@@ -17,6 +17,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 
 use crate::config::Config;
+use crate::dsp::Analyzer;
 use crate::theme::ThemeId;
 
 /// Summary features computed once per frame from the mono mix, so styles
@@ -32,6 +33,47 @@ pub struct AudioFeatures {
     pub rms_db: f32,
     /// Absolute sample peak of the current window, linear.
     pub peak: f32,
+}
+
+/// Bands in the shared feature analyzer.
+const FEATURE_BANDS: usize = 24;
+
+/// Turns the mono mix into [`AudioFeatures`] each frame. Shared by the app
+/// and the offline renderer, so both see the same levels.
+pub struct FeatureExtractor {
+    analyzer: Analyzer,
+}
+
+impl FeatureExtractor {
+    pub fn new(cfg: &Config) -> Self {
+        // Fast attack: features feed beat detection.
+        Self {
+            analyzer: Analyzer::new(cfg, FEATURE_BANDS).with_fixed_smoothing(0),
+        }
+    }
+
+    pub fn update(
+        &mut self,
+        cfg: &Config,
+        mono: &[f32],
+        rate: u32,
+        dt: f32,
+        silent: bool,
+    ) -> AudioFeatures {
+        self.analyzer.sync(cfg);
+        self.analyzer.update(mono, rate, dt, silent);
+        let fb = self.analyzer.bars();
+        let bands = fb.len();
+        let avg = |s: &[f32]| s.iter().sum::<f32>() / s.len().max(1) as f32;
+        AudioFeatures {
+            bass: avg(&fb[..bands / 4]),
+            mid: avg(&fb[bands / 4..bands / 2]),
+            treble: avg(&fb[bands / 2..]),
+            level: avg(fb),
+            rms_db: if silent { -120.0 } else { rms_db(mono) },
+            peak: mono.iter().fold(0.0f32, |a, &s| a.max(s.abs())),
+        }
+    }
 }
 
 /// One analysis window of audio, shared by all visualizer styles.
@@ -54,6 +96,13 @@ pub trait Visualizer {
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, max_bars: usize, dt: f32);
     /// Draw into `area`. Must not assume any particular minimum size.
     fn render(&self, area: Rect, buf: &mut Buffer, theme: ThemeId, cfg: &Config);
+    /// Internal values the offline renderer logs per frame, such as how
+    /// many objects are alive or the strength of an onset that just fired
+    /// (0 otherwise). Names ending in `onset` are drawn as event ticks.
+    #[cfg(feature = "render")]
+    fn probe(&self) -> Vec<(&'static str, f32)> {
+        Vec::new()
+    }
 }
 
 /// Registry entry for one style: the config/CLI id, the display name, and
@@ -80,6 +129,13 @@ pub const STYLES: [StyleInfo; 13] = [
     StyleInfo { id: "radial", name: "Radial", factory: |c| Box::new(radial::Radial::new(c)) },
     StyleInfo { id: "skyline", name: "Skyline", factory: |c| Box::new(skyline::Skyline::new(c)) },
 ];
+
+impl StyleInfo {
+    #[cfg(feature = "render")]
+    pub fn create(&self, cfg: &Config) -> Box<dyn Visualizer> {
+        (self.factory)(cfg)
+    }
+}
 
 /// Instantiate every visualizer, in [`STYLES`] order.
 pub fn create_all(cfg: &Config) -> Vec<Box<dyn Visualizer>> {

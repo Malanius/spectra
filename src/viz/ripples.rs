@@ -23,6 +23,9 @@ pub struct Ripples {
     hat: OnsetDetector,
     /// Treble smoothed with the user's preset, for the background drizzle.
     treble_s: f32,
+    /// Strength of the bass onset fired this frame, 0 if none.
+    #[cfg_attr(not(feature = "render"), allow(dead_code))]
+    last_onset: f32,
 }
 
 struct Ripple {
@@ -67,6 +70,7 @@ impl Ripples {
             onset: OnsetDetector::new(2.0, 0.08, 0.15),
             hat: OnsetDetector::new(1.8, 0.06, 0.08),
             treble_s: 0.0,
+            last_onset: 0.0,
         }
     }
 
@@ -102,7 +106,9 @@ impl Visualizer for Ripples {
         // Bass onsets: a sharp rise makes a big ripple somewhere near the
         // middle of the lake. Detected on the raw bass, since smoothing
         // blunts the very rise the detector looks for.
+        self.last_onset = 0.0;
         if let Some(strength) = self.onset.feed(frame.features.bass, frame.silent, dt) {
+            self.last_onset = strength;
             let (jx, jy) = (self.rng.f32(), self.rng.f32());
             self.spawn(
                 0.5 + (jx - 0.5) * 0.4,
@@ -139,6 +145,16 @@ impl Visualizer for Ripples {
             r.age += dt;
         }
         self.ripples.retain(|r| r.amp() > 0.06 && r.age < 15.0);
+    }
+
+    #[cfg(feature = "render")]
+    fn probe(&self) -> Vec<(&'static str, f32)> {
+        let big = self.ripples.iter().filter(|r| r.big).count();
+        vec![
+            ("big", big as f32),
+            ("rain", (self.ripples.len() - big) as f32),
+            ("onset", self.last_onset),
+        ]
     }
 
     fn render(&self, area: Rect, buf: &mut Buffer, theme: ThemeId, _cfg: &Config) {

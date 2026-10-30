@@ -3,6 +3,8 @@ mod audio;
 mod config;
 mod dsp;
 mod nowplaying;
+#[cfg(feature = "render")]
+mod render;
 mod theme;
 mod ui;
 mod viz;
@@ -49,6 +51,10 @@ fn parse_theme(s: &str) -> Result<ThemeId, String> {
 }
 
 fn main() -> Result<()> {
+    #[cfg(feature = "render")]
+    if std::env::args().nth(1).as_deref() == Some("render") {
+        return render::main(std::env::args().skip(1));
+    }
     let cli = Cli::parse();
 
     if cli.list_devices {
