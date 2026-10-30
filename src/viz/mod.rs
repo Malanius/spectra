@@ -230,11 +230,20 @@ impl Rng {
     }
 }
 
-/// Detects sudden jumps of a level above its recent average — used to turn
-/// bass energy into discrete "beat" events. `ratio` is how far above the
-/// running average a level must jump; `floor` is the minimum absolute level.
+/// Detects sudden jumps of a level, used to turn bass energy into discrete
+/// "beat" events. It looks at how sharply the level rises, not how high it
+/// is, so kicks still register in dense mixes where the bass never drops
+/// far below its peak. `ratio` is how far above the recent average jump a
+/// jump must be; `floor` is the minimum jump size.
 pub(crate) struct OnsetDetector {
-    ema: f32,
+    /// Follows the level down instantly and up slowly, so `level - base`
+    /// is the size of the current rise.
+    base: f32,
+    /// Running average of the rise size.
+    avg: f32,
+    /// Cleared on an onset, set again once the rise has subsided, so one
+    /// hit fires once however long its attack takes.
+    armed: bool,
     cooldown: f32,
     ratio: f32,
     floor: f32,
@@ -245,7 +254,9 @@ pub(crate) struct OnsetDetector {
 impl OnsetDetector {
     pub fn new(ratio: f32, floor: f32, refractory: f32) -> Self {
         Self {
-            ema: 0.0,
+            base: 0.0,
+            avg: 0.0,
+            armed: true,
             cooldown: 0.0,
             ratio,
             floor,
@@ -255,11 +266,20 @@ impl OnsetDetector {
 
     /// Feed the current level (0..1); returns the level on an onset.
     pub fn feed(&mut self, level: f32, silent: bool, dt: f32) -> Option<f32> {
-        let ema = self.ema;
-        self.ema += (level - ema) * (dt / 0.6).min(1.0);
+        let rise = (level - self.base).max(0.0);
+        self.base = if level < self.base {
+            level
+        } else {
+            self.base + (level - self.base) * (dt / 0.15).min(1.0)
+        };
+        let threshold = (self.avg * self.ratio).max(self.floor);
+        self.avg += (rise - self.avg) * (dt / 1.5).min(1.0);
         self.cooldown -= dt;
-        if !silent && level > self.floor && level > ema * self.ratio + 0.03 && self.cooldown <= 0.0
-        {
+        if rise < threshold * 0.5 {
+            self.armed = true;
+        }
+        if !silent && self.armed && rise > threshold && self.cooldown <= 0.0 {
+            self.armed = false;
             self.cooldown = self.refractory;
             Some(level)
         } else {
@@ -397,6 +417,37 @@ impl BrailleCanvas {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Bass of a dense mix at 60 fps: never below `trough`, jumping to
+    /// `trough + kick` on every beat and decaying back, 128 BPM.
+    fn dense_bass(trough: f32, kick: f32, secs: f32) -> Vec<f32> {
+        let beat = 60.0 / 128.0;
+        (0..(secs * 60.0) as usize)
+            .map(|i| {
+                let t = (i as f32 / 60.0) % beat;
+                trough + kick * (-t * 6.0).exp()
+            })
+            .collect()
+    }
+
+    fn count_onsets(det: &mut OnsetDetector, levels: &[f32]) -> usize {
+        levels.iter().filter(|&&l| det.feed(l, false, 1.0 / 60.0).is_some()).count()
+    }
+
+    #[test]
+    fn onsets_fire_once_per_kick_over_a_high_floor() {
+        let levels = dense_bass(0.65, 0.25, 8.0);
+        // A beat starts wherever the level jumps up, plus the first frame.
+        let beats = 1 + levels.windows(2).filter(|w| w[1] > w[0]).count();
+        assert_eq!(count_onsets(&mut OnsetDetector::new(2.0, 0.08, 0.15), &levels), beats);
+    }
+
+    #[test]
+    fn steady_level_fires_no_onsets() {
+        let mut det = OnsetDetector::new(2.0, 0.08, 0.15);
+        count_onsets(&mut det, &[0.8; 60]); // the initial rise from 0 may fire
+        assert_eq!(count_onsets(&mut det, &[0.8; 600]), 0);
+    }
 
     #[test]
     fn braille_dots_set_the_right_bits() {

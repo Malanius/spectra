@@ -6,11 +6,11 @@ use ratatui::style::Style;
 
 use super::{AudioFrame, OnsetDetector, Rng, Visualizer};
 use crate::config::Config;
-use crate::theme::ThemeId;
+use crate::theme::{dim_color, ThemeId};
 
-/// Starfield: beats fire particle bursts from the center; treble drizzles
-/// slow drifters from random spots. Particles fade through the theme
-/// gradient as they age.
+/// Starfield: kicks fire particle bursts from the center that expand as a
+/// shell; treble drizzles a few slow drifters from random spots. Particles
+/// keep their color and dim as they age.
 pub struct Particles {
     particles: VecDeque<Particle>,
     onset: OnsetDetector,
@@ -33,14 +33,15 @@ struct Particle {
 }
 
 const BASE_MAX_PARTICLES: f32 = 320.0;
+/// Width over height of the area in column-width units, for an ~80x24
+/// terminal (a row is about two columns tall).
+const ASPECT: f32 = 1.6;
 
 impl Particles {
     pub fn new(_cfg: &Config) -> Self {
         Self {
             particles: VecDeque::new(),
-            // More sensitive than the shared feature onset: bursts should
-            // fire on softer transients than other styles' beat effects.
-            onset: OnsetDetector::new(1.12, 0.12, 0.13),
+            onset: OnsetDetector::new(2.0, 0.08, 0.15),
             rng: Rng(0xa5a5_1234_dead_beef),
             drizzle: 0.0,
             cap: BASE_MAX_PARTICLES as usize,
@@ -63,18 +64,22 @@ impl Visualizer for Particles {
 
         // Beat → radial burst from the center, bass hues, speed by energy.
         if let Some(strength) = self.onset.feed(bass, frame.silent, dt) {
-            let count = ((16.0 + strength * 22.0) * density) as usize;
+            let count = ((30.0 + strength * 30.0) * density) as usize;
             for _ in 0..count {
                 let ang = self.rng.f32() * std::f32::consts::TAU;
-                let speed = (0.16 + 0.5 * strength) * (0.5 + self.rng.f32());
+                // Narrow speed spread, so the burst reads as one expanding
+                // ring instead of a blob.
+                let speed = (0.75 + 0.5 * strength) * (0.85 + 0.3 * self.rng.f32());
                 let hue = 0.55 + 0.45 * self.rng.f32();
-                let life = 1.0 + self.rng.f32() * 1.0;
+                let life = 0.8 + self.rng.f32() * 0.4;
                 let p = Particle {
-                    x: 0.5,
-                    y: 0.5,
-                    // Compensate cell aspect so bursts expand as circles.
+                    x: 0.5 + ang.cos() * 0.02,
+                    y: 0.5 + ang.sin() * 0.02 * ASPECT,
+                    // Normalized y spans half as many column widths as x
+                    // on a typical ~80x24 area, so stretch vy to keep
+                    // bursts roughly circular.
                     vx: ang.cos() * speed,
-                    vy: ang.sin() * speed * 0.55,
+                    vy: ang.sin() * speed * ASPECT,
                     age: 0.0,
                     life,
                     hue,
@@ -84,9 +89,10 @@ impl Visualizer for Particles {
             }
         }
 
-        // Drizzle: activity anywhere in the spectrum keeps stars drifting.
+        // Drizzle: treble keeps a few stars drifting between bursts. Kept
+        // sparse so the bursts stand out against it.
         if !frame.silent {
-            self.drizzle += dt * (16.0 * treble + 6.0 * bass) * density;
+            self.drizzle += dt * 6.0 * treble * density;
         }
         while self.drizzle >= 1.0 {
             self.drizzle -= 1.0;
@@ -135,7 +141,8 @@ impl Visualizer for Particles {
                 continue;
             }
             let idx = ((brightness * RAMP.len() as f32) as usize).min(RAMP.len() - 1);
-            let style = Style::default().fg(theme.bar_color(p.hue * brightness.max(0.4)));
+            let color = dim_color(theme.bar_color(p.hue), 0.35 + 0.65 * brightness);
+            let style = Style::default().fg(color);
             buf[(area.x + px as u16, area.y + py as u16)]
                 .set_symbol(RAMP[idx])
                 .set_style(style);

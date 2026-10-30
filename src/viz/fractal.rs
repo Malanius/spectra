@@ -37,8 +37,7 @@ impl Fractal {
         Self {
             // Strict trigger with a long refractory: the fractal's beat
             // effects are dramatic, so they must fire on real kicks only.
-            // (Own detector — the shared feature onset fires more often.)
-            onset: OnsetDetector::new(1.3, 0.25, 0.28),
+            onset: OnsetDetector::new(2.5, 0.12, 0.28),
             theta: 0.35,
             pop: 0.0,
             zoom_pulse: 0.0,
