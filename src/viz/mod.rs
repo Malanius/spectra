@@ -14,7 +14,7 @@ pub mod vu;
 
 use ratatui::buffer::{Buffer, Cell};
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Modifier, Style};
 
 use crate::config::Config;
 use crate::theme::ThemeId;
@@ -138,6 +138,84 @@ pub(crate) fn bar_layout(area: Rect, n: usize, cfg: &Config) -> (u16, u16) {
     let stride = cfg.bar_width + cfg.gap;
     let total = (n as u16) * stride - cfg.gap.min(stride);
     (area.x + area.width.saturating_sub(total) / 2, stride)
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum Grow {
+    Up,
+    Down,
+}
+
+/// Placement of one bar: column `x`, first cell row `base_y`, and how many
+/// rows it may fill in direction `grow`.
+#[derive(Clone, Copy)]
+pub(crate) struct BarColumn {
+    pub x: u16,
+    pub base_y: u16,
+    pub rows: usize,
+    pub grow: Grow,
+}
+
+/// Draw one bar of height `value` (0..1) with its peak-hold cap, using
+/// eighth blocks for the partial top cell. Shared by bars and mirror.
+pub(crate) fn draw_bar(
+    buf: &mut Buffer,
+    area: Rect,
+    theme: ThemeId,
+    cfg: &Config,
+    col: BarColumn,
+    value: f32,
+    peak: f32,
+) {
+    let BarColumn { x, base_y, rows, grow } = col;
+    if rows == 0 {
+        return;
+    }
+    let bw = cfg.bar_width;
+    // Terminal y for the cell `row` steps away from the base.
+    let y_at = |row: usize| match grow {
+        Grow::Up => base_y - row as u16,
+        Grow::Down => base_y + row as u16,
+    };
+
+    let fill = (value * (rows * 8) as f32).round() as usize;
+    let full_cells = fill / 8;
+    let rem = fill % 8;
+
+    for row in 0..rows.min(full_cells) {
+        let color = theme.bar_color((row as f32 + 0.5) / rows as f32);
+        put_hspan(buf, area, x, bw, y_at(row), "█", Style::default().fg(color));
+    }
+    if rem > 0 && full_cells < rows {
+        let color = theme.bar_color((full_cells as f32 + 0.5) / rows as f32);
+        let style = Style::default().fg(color);
+        let (sym, style) = match grow {
+            Grow::Up => (EIGHTHS[rem - 1], style),
+            // No upper-eighth glyphs exist: draw the complementary lower
+            // block with fg/bg swapped so the colored part hangs from the top.
+            Grow::Down => (EIGHTHS[8 - rem - 1], style.add_modifier(Modifier::REVERSED)),
+        };
+        put_hspan(buf, area, x, bw, y_at(full_cells), sym, style);
+    }
+
+    if cfg.peaks {
+        let pe = (peak * (rows * 8) as f32).round() as usize;
+        if pe >= 2 {
+            // Cell whose outer edge is nearest the peak height.
+            let pcell = (pe.div_ceil(8) - 1).min(rows - 1);
+            let top_fill_cell = if fill == 0 { None } else { Some((fill - 1) / 8) };
+            if top_fill_cell.is_none_or(|t| pcell > t) {
+                // Cap sits on the outer edge of its cell: top edge for an
+                // upward bar, bottom edge for a downward one.
+                let sym = match grow {
+                    Grow::Up => "▔",
+                    Grow::Down => "▁",
+                };
+                let style = Style::default().fg(theme.peak_color());
+                put_hspan(buf, area, x, bw, y_at(pcell), sym, style);
+            }
+        }
+    }
 }
 
 /// xorshift64* — deterministic, dependency-free randomness.

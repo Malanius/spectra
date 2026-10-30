@@ -2,7 +2,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 
-use super::{bar_layout, put_hspan, AudioFrame, Visualizer, EIGHTHS};
+use super::{bar_layout, draw_bar, AudioFrame, BarColumn, Grow, Visualizer};
 use crate::config::Config;
 use crate::dsp::{Analyzer, BandAgg};
 use crate::theme::ThemeId;
@@ -49,7 +49,6 @@ impl Visualizer for Bars {
 }
 
 /// Draw the bar field; returns (x of first bar, stride) for the axis labels.
-/// Shared with the mirrored style via the same cell-drawing primitives.
 fn draw_bars(
     analyzer: &Analyzer,
     area: Rect,
@@ -65,38 +64,14 @@ fn draw_bars(
     }
 
     let (x0, stride) = bar_layout(area, n, cfg);
-    let rows = area.height as usize;
-    let bw = cfg.bar_width;
-
-    for (i, &v) in bars.iter().enumerate() {
-        let x = x0 + i as u16 * stride;
-        let fill = (v * (rows * 8) as f32).round() as usize;
-        let full_cells = fill / 8;
-        let rem = fill % 8;
-
-        for row in 0..rows.min(full_cells) {
-            let color = theme.bar_color((row as f32 + 0.5) / rows as f32);
-            let y = area.y + area.height - 1 - row as u16;
-            put_hspan(buf, area, x, bw, y, "█", Style::default().fg(color));
-        }
-        if rem > 0 && full_cells < rows {
-            let color = theme.bar_color((full_cells as f32 + 0.5) / rows as f32);
-            let y = area.y + area.height - 1 - full_cells as u16;
-            put_hspan(buf, area, x, bw, y, EIGHTHS[rem - 1], Style::default().fg(color));
-        }
-
-        if cfg.peaks {
-            let pe = (peaks[i] * (rows * 8) as f32).round() as usize;
-            if pe >= 2 {
-                // Cell whose top edge is nearest the peak height.
-                let pcell = (pe.div_ceil(8) - 1).min(rows - 1);
-                let top_fill_cell = if fill == 0 { None } else { Some((fill - 1) / 8) };
-                if top_fill_cell.is_none_or(|t| pcell > t) {
-                    let y = area.y + area.height - 1 - pcell as u16;
-                    put_hspan(buf, area, x, bw, y, "▔", Style::default().fg(theme.peak_color()));
-                }
-            }
-        }
+    for (i, (&v, &p)) in bars.iter().zip(peaks).enumerate() {
+        let col = BarColumn {
+            x: x0 + i as u16 * stride,
+            base_y: area.y + area.height - 1,
+            rows: area.height as usize,
+            grow: Grow::Up,
+        };
+        draw_bar(buf, area, theme, cfg, col, v, p);
     }
     (x0, stride)
 }
