@@ -82,6 +82,7 @@ from that table.
 | ------- | ----------------------------------------- |
 | `v` `V` | next / previous visualization style       |
 | `m`     | visualization style menu                  |
+| `c`     | toggle auto-cycling through styles        |
 | `↑` `↓` | input gain up / down                      |
 | `+` `-` | more / fewer bars                         |
 | `s`     | cycle smoothing (fast / medium / smooth)  |
@@ -115,6 +116,8 @@ Settings (theme, bars, gain, smoothing, device, …) are saved to
 
 Additional config-file-only tunables:
 
+- `cycle_secs` — how long each style stays on screen while auto-cycle
+  (`c`, saved as `auto_cycle`) is on, in seconds (5–3600, default 60).
 - `band_agg` — how FFT bins fold into a bar for bars/mirror: `"energy"`
   (default), `"max"` (punchy), `"avg"` (smooth), `"hybrid"`.
 - `[mirror] mode` — `"lr"` (left/right) or `"ms"` (mid/side stereo width).

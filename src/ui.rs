@@ -98,8 +98,9 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
         ));
     }
     let right = format!(
-        "{} · {} · {} · gain {:+.0} dB{} ",
+        "{}{} · {} · {} · gain {:+.0} dB{} ",
         app.viz_name(),
+        if app.cfg.auto_cycle { " ↻" } else { "" },
         theme.display_name(),
         SMOOTHING_PRESETS[app.cfg.smoothing].0,
         app.cfg.gain_db,
@@ -181,9 +182,10 @@ const fn key_help(
     KeyHelp { footer_key, footer_label, help_key, help_text }
 }
 
-const KEYS: [KeyHelp; 12] = [
+const KEYS: [KeyHelp; 13] = [
     key_help("v/V", "style", "v / V", "next / previous visualization style"),
     key_help("m", "menu", "m", "visualization style menu"),
+    key_help("c", "cycle", "c", "toggle auto-cycling through styles"),
     key_help("↑↓", "gain", "↑ / ↓", "input gain up / down"),
     key_help("+-", "bars", "+ / -", "more / fewer bars"),
     key_help("s", "smooth", "s", "cycle smoothing (fast/medium/smooth)"),

@@ -60,6 +60,10 @@ pub struct Config {
     pub peaks: bool,
     /// Show the header and footer bars (toggled with 'f').
     pub hud: bool,
+    /// Switch to the next visualization style on a timer (toggled with 'c').
+    pub auto_cycle: bool,
+    /// Seconds each style stays on screen while `auto_cycle` is on.
+    pub cycle_secs: u64,
     /// PipeWire node.name to capture from; None = default output monitor.
     pub device: Option<String>,
     /// Whether the chosen device is a sink (capture its monitor) or a source.
@@ -201,6 +205,8 @@ impl Default for Config {
             smoothing: 1,
             peaks: true,
             hud: true,
+            auto_cycle: false,
+            cycle_secs: 60,
             device: None,
             device_is_sink: true,
             fft_size: 2048,
@@ -253,6 +259,7 @@ impl Config {
         self.gap = self.gap.min(4);
         self.gain_db = self.gain_db.clamp(-30.0, 30.0);
         self.smoothing = self.smoothing.min(2);
+        self.cycle_secs = self.cycle_secs.clamp(5, 3600);
         if !self.fft_size.is_power_of_two() || !(256..=16384).contains(&self.fft_size) {
             self.fft_size = 2048;
         }
@@ -316,5 +323,15 @@ mod tests {
         };
         cfg.sanitize();
         assert_eq!(cfg.visualizer, "bars");
+    }
+
+    #[test]
+    fn sanitize_clamps_cycle_secs() {
+        let mut cfg = Config {
+            cycle_secs: 0,
+            ..Config::default()
+        };
+        cfg.sanitize();
+        assert_eq!(cfg.cycle_secs, 5);
     }
 }

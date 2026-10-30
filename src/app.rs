@@ -48,6 +48,8 @@ pub struct App {
     pub max_bars: usize,
     visualizers: Vec<Box<dyn Visualizer>>,
     viz_idx: usize,
+    /// When the current style was selected, for `auto_cycle`.
+    viz_since: Instant,
     now_playing: nowplaying::Shared,
     status: Option<(String, Instant)>,
     mono_buf: Vec<f32>,
@@ -87,6 +89,7 @@ impl App {
             max_bars: MAX_BARS,
             visualizers,
             viz_idx,
+            viz_since: Instant::now(),
             now_playing: nowplaying::spawn_poller(),
             status: None,
             mono_buf: vec![0.0; fft_size],
@@ -129,6 +132,7 @@ impl App {
 
     fn select_style(&mut self, idx: usize) {
         self.viz_idx = idx % self.visualizers.len();
+        self.viz_since = Instant::now();
         self.cfg.visualizer = viz::STYLES[self.viz_idx].id.to_string();
         self.set_status(format!("style: {}", self.viz_name()));
     }
@@ -178,9 +182,21 @@ impl App {
         matches!((&self.cfg.device, &self.linked), (Some(want), Some(src)) if src.name != *want)
     }
 
+    /// Advance to the next style once the current one has been shown for
+    /// `cycle_secs`. Waits while a popup is open.
+    fn check_auto_cycle(&mut self) {
+        if !self.cfg.auto_cycle || !matches!(self.popup, Popup::None) {
+            return;
+        }
+        if self.viz_since.elapsed() >= Duration::from_secs(self.cfg.cycle_secs) {
+            self.select_style(self.viz_idx + 1);
+        }
+    }
+
     /// Pull the latest window of samples and advance the active visualizer.
     fn tick(&mut self, dt: f32) {
         self.check_linked_source();
+        self.check_auto_cycle();
         let fft_size = self.cfg.fft_size;
         let (rate, silent) = match self.capture.as_mut() {
             Some(cap) => {
@@ -361,6 +377,16 @@ impl App {
                     (self.viz_idx + n - 1) % n
                 };
                 self.select_style(idx);
+            }
+            KeyCode::Char('c') => {
+                self.cfg.auto_cycle = !self.cfg.auto_cycle;
+                // Give the current style a full interval from now.
+                self.viz_since = Instant::now();
+                self.set_status(if self.cfg.auto_cycle {
+                    format!("auto cycle on, every {} s", self.cfg.cycle_secs)
+                } else {
+                    "auto cycle off".into()
+                });
             }
             KeyCode::Char('m') => {
                 self.popup = Popup::Styles {
