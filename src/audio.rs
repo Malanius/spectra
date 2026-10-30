@@ -22,6 +22,9 @@ pub struct AudioDevice {
     pub is_sink: bool,
 }
 
+/// Display label for [`CaptureTarget::default`].
+pub const DEFAULT_DEVICE_LABEL: &str = "Default output";
+
 /// What to capture. `node_name: None` means the default output's monitor.
 #[derive(Debug, Clone)]
 pub struct CaptureTarget {

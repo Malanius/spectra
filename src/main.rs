@@ -10,8 +10,8 @@ mod viz;
 use anyhow::{bail, Result};
 use clap::Parser;
 
-use audio::CaptureTarget;
-use config::{Config, ConfigKey};
+use audio::{CaptureTarget, DEFAULT_DEVICE_LABEL};
+use config::{Config, ConfigKey, MAX_BARS, MIN_BARS};
 use theme::ThemeId;
 
 /// Retro hi-fi spectrum analyzer for the terminal, powered by PipeWire.
@@ -28,8 +28,8 @@ struct Cli {
     list_devices: bool,
 
     /// Color theme: terminal, classic, catppuccin, gruvbox, nord, tokyo-night.
-    #[arg(short, long)]
-    theme: Option<String>,
+    #[arg(short, long, value_parser = parse_theme)]
+    theme: Option<ThemeId>,
 
     /// Number of frequency bars.
     #[arg(short, long)]
@@ -38,6 +38,14 @@ struct Cli {
     /// Visualization style.
     #[arg(short = 's', long, value_parser = clap::builder::PossibleValuesParser::new(viz::style_ids()))]
     style: Option<String>,
+}
+
+/// Parse `--theme`, accepting the same keys and aliases as the config file.
+fn parse_theme(s: &str) -> Result<ThemeId, String> {
+    ThemeId::from_key(s).ok_or_else(|| {
+        let keys: Vec<_> = ThemeId::ALL.iter().map(|t| t.key()).collect();
+        format!("expected one of: {}", keys.join(", "))
+    })
 }
 
 fn main() -> Result<()> {
@@ -55,16 +63,11 @@ fn main() -> Result<()> {
 
     let mut cfg = Config::load();
     cfg.sanitize();
-    if let Some(t) = &cli.theme {
-        match ThemeId::from_key(t) {
-            Some(id) => cfg.theme = id,
-            None => bail!(
-                "unknown theme '{t}' (expected one of: terminal, classic, catppuccin, gruvbox, nord, tokyo-night)"
-            ),
-        }
+    if let Some(t) = cli.theme {
+        cfg.theme = t;
     }
     if let Some(b) = cli.bars {
-        cfg.bars = b.clamp(8, 96);
+        cfg.bars = b.clamp(MIN_BARS, MAX_BARS);
     }
     if let Some(s) = cli.style {
         cfg.visualizer = s; // clap already checked it against viz::STYLES
@@ -73,7 +76,7 @@ fn main() -> Result<()> {
     // Resolve the capture target: CLI flag beats config, both fall back to
     // the default output monitor if the device can't be found.
     let mut target = CaptureTarget::default();
-    let mut label = "Default output".to_string();
+    let mut label = DEFAULT_DEVICE_LABEL.to_string();
     if let Some(query) = &cli.device {
         let devices = audio::enumerate_devices()?;
         let q = query.to_lowercase();

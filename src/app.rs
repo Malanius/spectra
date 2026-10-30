@@ -6,8 +6,8 @@ use anyhow::Result;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::DefaultTerminal;
 
-use crate::audio::{enumerate_devices, AudioDevice, Capture, CaptureTarget};
-use crate::config::Config;
+use crate::audio::{enumerate_devices, AudioDevice, Capture, CaptureTarget, DEFAULT_DEVICE_LABEL};
+use crate::config::{Config, MAX_BARS, MIN_BARS};
 use crate::dsp::{Analyzer, SMOOTHING_PRESETS};
 use crate::nowplaying::{self, NowPlaying};
 use crate::ui;
@@ -74,7 +74,7 @@ impl App {
             device_label,
             popup: Popup::None,
             should_quit: false,
-            max_bars: 96,
+            max_bars: MAX_BARS,
             visualizers,
             viz_idx,
             now_playing: nowplaying::spawn_poller(),
@@ -94,10 +94,7 @@ impl App {
             Err(e) if initial.node_name.is_some() => {
                 // Configured device unavailable — fall back to the default output.
                 app.set_status(format!("device unavailable ({e}), using default output"));
-                app.capture = Some(Capture::start(CaptureTarget::default())?);
-                app.device_label = "Default output".into();
-                app.cfg.device = None;
-                app.cfg.device_is_sink = true;
+                app.use_default_device()?;
             }
             Err(e) => return Err(e),
         }
@@ -229,14 +226,19 @@ impl App {
             }
             Err(e) => {
                 self.set_status(format!("failed to open device: {e}"));
-                if let Ok(c) = Capture::start(CaptureTarget::default()) {
-                    self.capture = Some(c);
-                    self.device_label = "Default output".into();
-                    self.cfg.device = None;
-                    self.cfg.device_is_sink = true;
-                }
+                let _ = self.use_default_device();
             }
         }
+    }
+
+    /// Capture the default output's monitor and forget the configured device.
+    /// Leaves everything unchanged if even that fails.
+    fn use_default_device(&mut self) -> Result<()> {
+        self.capture = Some(Capture::start(CaptureTarget::default())?);
+        self.device_label = DEFAULT_DEVICE_LABEL.into();
+        self.cfg.device = None;
+        self.cfg.device_is_sink = true;
+        Ok(())
     }
 
     fn on_key(&mut self, code: KeyCode, mods: KeyModifiers) {
@@ -253,7 +255,7 @@ impl App {
                 }
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     let (target, label) = if *selected == 0 {
-                        (CaptureTarget::default(), "Default output".to_string())
+                        (CaptureTarget::default(), DEFAULT_DEVICE_LABEL.to_string())
                     } else {
                         let d = &devices[*selected - 1];
                         (
@@ -338,7 +340,7 @@ impl App {
             }
             KeyCode::Char('-') | KeyCode::Char('_') => {
                 let shown = self.cfg.bars.min(self.max_bars);
-                self.cfg.bars = shown.saturating_sub(2).max(8);
+                self.cfg.bars = shown.saturating_sub(2).max(MIN_BARS);
                 self.set_status(format!("{} bars", self.cfg.bars));
             }
             KeyCode::Char('s') => {

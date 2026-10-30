@@ -33,6 +33,10 @@ mod key_serde {
     }
 }
 
+/// Allowed range for the configured bar count.
+pub const MIN_BARS: usize = 8;
+pub const MAX_BARS: usize = 96;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -244,7 +248,7 @@ impl Config {
         if !viz::STYLES.iter().any(|s| s.id == self.visualizer) {
             self.visualizer = "bars".into();
         }
-        self.bars = self.bars.clamp(8, 96);
+        self.bars = self.bars.clamp(MIN_BARS, MAX_BARS);
         self.bar_width = self.bar_width.clamp(1, 8);
         self.gap = self.gap.min(4);
         self.gain_db = self.gain_db.clamp(-30.0, 30.0);

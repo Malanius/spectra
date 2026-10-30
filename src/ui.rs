@@ -6,14 +6,15 @@ use ratatui::Frame;
 use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, Popup};
-use crate::config::Config;
+use crate::audio::DEFAULT_DEVICE_LABEL;
+use crate::config::{Config, MAX_BARS};
 use crate::dsp::SMOOTHING_PRESETS;
 
-/// How many bars can fit on a terminal of the given width (hard cap 96).
+/// How many bars can fit on a terminal of the given width (hard cap `MAX_BARS`).
 pub fn max_bars(cfg: &Config, width: u16) -> usize {
     let per = (cfg.bar_width + cfg.gap) as usize;
     let usable = width.saturating_sub(2) as usize + cfg.gap as usize;
-    (usable / per.max(1)).clamp(4, 96)
+    (usable / per.max(1)).clamp(4, MAX_BARS)
 }
 
 pub fn draw(frame: &mut Frame, app: &App) {
@@ -265,7 +266,7 @@ fn draw_devices(
     selected: usize,
 ) {
     let theme = app.cfg.theme;
-    let mut items = vec![ListItem::new("  Default output (monitor)")];
+    let mut items = vec![ListItem::new(format!("  {DEFAULT_DEVICE_LABEL} (monitor)"))];
     items.extend(devices.iter().map(|d| {
         let tag = if d.is_sink { "monitor" } else { "input" };
         ListItem::new(format!("  {} [{tag}]", d.description))
