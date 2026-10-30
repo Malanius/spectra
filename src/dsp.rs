@@ -335,3 +335,98 @@ impl Analyzer {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const RATE: u32 = 48_000;
+    const DT: f32 = 1.0 / 60.0;
+
+    fn sine(freq: f32, amp: f32, n: usize) -> Vec<f32> {
+        (0..n)
+            .map(|i| amp * (std::f32::consts::TAU * freq * i as f32 / RATE as f32).sin())
+            .collect()
+    }
+
+    fn settled(cfg: &Config, samples: &[f32]) -> Analyzer {
+        let mut a = Analyzer::new(cfg, 32);
+        for _ in 0..120 {
+            a.update(samples, RATE, DT, false);
+        }
+        a
+    }
+
+    #[test]
+    fn sine_lights_its_own_band() {
+        let cfg = Config::default();
+        for freq in [100.0, 1000.0, 8000.0] {
+            let a = settled(&cfg, &sine(freq, 0.5, cfg.fft_size));
+            let (loudest, _) = a
+                .bars()
+                .iter()
+                .enumerate()
+                .max_by(|x, y| x.1.total_cmp(y.1))
+                .unwrap();
+            // Bands are ~0.2 natural-log units wide at 32 bars.
+            let off = (a.band_freq(loudest) / freq).ln().abs();
+            assert!(off < 0.2, "{freq} Hz landed in band at {} Hz", a.band_freq(loudest));
+        }
+    }
+
+    #[test]
+    fn peaks_never_below_bars() {
+        let cfg = Config::default();
+        let mut a = settled(&cfg, &sine(1000.0, 0.5, cfg.fft_size));
+        for _ in 0..30 {
+            a.update(&[], RATE, DT, true);
+            assert!(a.bars().iter().zip(a.peaks()).all(|(b, p)| p >= b));
+        }
+    }
+
+    #[test]
+    fn silence_decays_to_zero() {
+        let cfg = Config::default();
+        let mut a = settled(&cfg, &sine(1000.0, 0.5, cfg.fft_size));
+        for _ in 0..300 {
+            a.update(&[], RATE, DT, true);
+        }
+        assert!(a.bars().iter().all(|&b| b < 0.01), "{:?}", a.bars());
+    }
+
+    #[test]
+    fn manual_gain_maps_range_below_0dbfs() {
+        let agc = Agc::new(SILENCE_DB);
+        assert_eq!(agc.norm(0.0, false, 0.0, 64.0), 1.0);
+        assert_eq!(agc.norm(-64.0, false, 0.0, 64.0), 0.0);
+        assert!((agc.norm(-32.0, false, 0.0, 64.0) - 0.5).abs() < 1e-6);
+        // +6 dB of manual gain lowers the ceiling by 6 dB.
+        assert_eq!(agc.norm(-6.0, false, 6.0, 64.0), 1.0);
+    }
+
+    #[test]
+    fn agc_rises_fast_and_releases_slowly() {
+        let mut agc = Agc::new(SILENCE_DB);
+        // One second of loud input pulls the ceiling up almost all the way.
+        for _ in 0..60 {
+            agc.follow(-5.0, true, DT);
+        }
+        assert!(agc.ceil_db > -6.0, "rise: {}", agc.ceil_db);
+        // One second of quieter input barely moves it back down.
+        for _ in 0..60 {
+            agc.follow(-40.0, true, DT);
+        }
+        assert!(agc.ceil_db > -12.0, "release: {}", agc.ceil_db);
+    }
+
+    #[test]
+    fn agc_ignores_silence_and_manual_mode() {
+        let mut agc = Agc::new(SILENCE_DB);
+        let start = agc.ceil_db;
+        for _ in 0..60 {
+            agc.follow(-100.0, true, DT); // below the silence threshold
+            agc.follow(0.0, false, DT); // auto gain off
+        }
+        assert_eq!(agc.ceil_db, start);
+    }
+}

@@ -393,3 +393,56 @@ impl BrailleCanvas {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn braille_dots_set_the_right_bits() {
+        let mut c = BrailleCanvas::new(2, 1);
+        c.dot(0, 0, 0.5); // top-left of cell 0
+        c.dot(1, 3, 0.9); // bottom-right of cell 0
+        c.dot(2, 1, 0.2); // second row, left column of cell 1
+        assert_eq!(c.bits, [0x01 | 0x80, 0x02]);
+        assert_eq!(c.intensity, [0.9, 0.2]);
+    }
+
+    #[test]
+    fn braille_ignores_out_of_bounds() {
+        let mut c = BrailleCanvas::new(1, 1);
+        for (x, y) in [(-1, 0), (0, -1), (2, 0), (0, 4)] {
+            c.dot(x, y, 1.0);
+        }
+        assert_eq!(c.bits, [0]);
+    }
+
+    #[test]
+    fn braille_line_hits_both_ends() {
+        let mut c = BrailleCanvas::new(4, 2);
+        c.line(0, 0, 7, 7, 1.0);
+        assert_ne!(c.bits[0] & 0x01, 0); // (0, 0)
+        assert_ne!(c.bits[7] & 0x80, 0); // (7, 7): cell (3, 1), bottom-right
+    }
+
+    #[test]
+    fn braille_blit_writes_glyphs_only_where_drawn() {
+        let mut c = BrailleCanvas::new(2, 1);
+        c.dot(0, 0, 1.0);
+        let area = Rect::new(0, 0, 2, 1);
+        let mut buf = Buffer::empty(area);
+        c.blit(&mut buf, area, |_| Color::Red);
+        assert_eq!(buf[(0, 0)].symbol(), "⠁");
+        assert_eq!(buf[(0, 0)].fg, Color::Red);
+        assert_eq!(buf[(1, 0)].symbol(), " ");
+    }
+
+    #[test]
+    fn half_block_picks_glyph_per_half() {
+        let mut cell = Cell::default();
+        put_half_block(&mut cell, None, Some(Color::Blue));
+        assert_eq!((cell.symbol(), cell.fg), ("▄", Color::Blue));
+        put_half_block(&mut cell, Some(Color::Red), Some(Color::Blue));
+        assert_eq!((cell.symbol(), cell.fg, cell.bg), ("▀", Color::Red, Color::Blue));
+    }
+}
