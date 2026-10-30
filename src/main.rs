@@ -77,6 +77,7 @@ fn main() -> Result<()> {
     // the default output monitor if the device can't be found.
     let mut target = CaptureTarget::default();
     let mut label = DEFAULT_DEVICE_LABEL.to_string();
+    let mut notice = None;
     if let Some(query) = &cli.device {
         let devices = audio::enumerate_devices()?;
         let q = query.to_lowercase();
@@ -94,22 +95,38 @@ fn main() -> Result<()> {
             }
             None => bail!("no device matching '{query}' (try --list-devices)"),
         }
-    } else if let Some(name) = &cfg.device {
-        target = CaptureTarget {
-            node_name: Some(name.clone()),
-            is_sink: cfg.device_is_sink,
-        };
-        label = name.clone();
-        // Use the nicer description if the device is currently present.
-        if let Ok(devices) = audio::enumerate_devices() {
-            if let Some(d) = devices.iter().find(|d| &d.name == name) {
-                label = d.description.clone();
+    } else if let Some(name) = cfg.device.clone() {
+        // PipeWire accepts a stream whose target.object matches nothing and
+        // WirePlumber silently links it to the default output instead, so a
+        // missing device has to be caught here, not by Capture::start.
+        match audio::enumerate_devices() {
+            Ok(devices) => match devices.iter().find(|d| d.name == name) {
+                Some(d) => {
+                    target = CaptureTarget {
+                        node_name: Some(name),
+                        is_sink: cfg.device_is_sink,
+                    };
+                    label = d.description.clone();
+                }
+                None => {
+                    notice = Some(format!("saved device {name} not found, using default output"));
+                    cfg.device = None;
+                    cfg.device_is_sink = true;
+                }
+            },
+            // Can't check: try the saved device as-is.
+            Err(_) => {
+                target = CaptureTarget {
+                    node_name: Some(name.clone()),
+                    is_sink: cfg.device_is_sink,
+                };
+                label = name;
             }
         }
     }
 
     let mut terminal = ratatui::init();
-    let result = app::run(&mut terminal, cfg, target, label);
+    let result = app::run(&mut terminal, cfg, target, label, notice);
     ratatui::restore();
 
     let cfg = result?;

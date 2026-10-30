@@ -396,8 +396,12 @@ pub fn run(
     cfg: Config,
     initial: CaptureTarget,
     device_label: String,
+    notice: Option<String>,
 ) -> Result<Config> {
     let mut app = App::new(cfg, initial, device_label)?;
+    if let Some(msg) = notice {
+        app.set_status(msg);
+    }
     let mut last = Instant::now();
 
     while !app.should_quit {
