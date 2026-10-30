@@ -1,7 +1,7 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
-use super::{AudioFrame, Rng, Visualizer};
+use super::{put_half_block, AudioFrame, Rng, Visualizer};
 use crate::config::Config;
 use crate::dsp::Analyzer;
 use crate::theme::ThemeId;
@@ -25,15 +25,7 @@ const BANDS: usize = 32;
 impl Fire {
     pub fn new(cfg: &Config) -> Self {
         Self {
-            analyzer: Analyzer::new(
-                cfg.fft_size,
-                BANDS,
-                cfg.freq_min,
-                cfg.freq_max,
-                cfg.gain_db,
-                cfg.auto_gain,
-                cfg.smoothing,
-            ),
+            analyzer: Analyzer::new(cfg, BANDS),
             heat: vec![0.0; W * H],
             rng: Rng(0xfeedface1234),
             level: 0.0,
@@ -43,9 +35,7 @@ impl Fire {
 
 impl Visualizer for Fire {
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, _max_bars: usize, dt: f32) {
-        self.analyzer.gain_db = cfg.gain_db;
-        self.analyzer.auto_gain = cfg.auto_gain;
-        self.analyzer.smoothing = cfg.smoothing;
+        self.analyzer.sync(cfg);
         self.analyzer.update(frame.mono, frame.rate, dt, frame.silent);
         let bars = self.analyzer.bars();
         self.level = bars.iter().sum::<f32>() / bars.len() as f32;
@@ -114,18 +104,8 @@ impl Visualizer for Fire {
                 };
                 let (u, l) = (sample(row * 2), sample(row * 2 + 1));
                 let cell = &mut buf[(area.x + col as u16, area.y + row as u16)];
-                match (u >= 0.035, l >= 0.035) {
-                    (true, true) => {
-                        cell.set_symbol("▀").set_fg(color(u)).set_bg(color(l));
-                    }
-                    (true, false) => {
-                        cell.set_symbol("▀").set_fg(color(u));
-                    }
-                    (false, true) => {
-                        cell.set_symbol("▄").set_fg(color(l));
-                    }
-                    (false, false) => {}
-                }
+                let lit = |h: f32| (h >= 0.035).then(|| color(h));
+                put_half_block(cell, lit(u), lit(l));
             }
         }
     }

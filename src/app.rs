@@ -69,15 +69,8 @@ impl App {
             .position(|s| s.id == cfg.visualizer)
             .unwrap_or(0);
         let fft_size = cfg.fft_size;
-        let feature_analyzer = Analyzer::new(
-            fft_size,
-            FEATURE_BANDS,
-            cfg.freq_min,
-            cfg.freq_max,
-            cfg.gain_db,
-            cfg.auto_gain,
-            0, // fast attack: features feed beat detection
-        );
+        // Fast attack: features feed beat detection.
+        let feature_analyzer = Analyzer::new(&cfg, FEATURE_BANDS).with_fixed_smoothing(0);
         let mut app = Self {
             cfg,
             theme,
@@ -195,8 +188,7 @@ impl App {
             self.mono_buf[pad + i] = (l + r) * 0.5;
         }
         // Shared per-frame features, computed once for all styles.
-        self.feature_analyzer.gain_db = self.cfg.gain_db;
-        self.feature_analyzer.auto_gain = self.cfg.auto_gain;
+        self.feature_analyzer.sync(&self.cfg);
         self.feature_analyzer.update(&self.mono_buf, rate, dt, silent);
         let fb = self.feature_analyzer.bars();
         let bands = fb.len();

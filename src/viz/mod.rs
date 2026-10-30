@@ -12,7 +12,7 @@ pub mod spectrogram;
 pub mod vector;
 pub mod vu;
 
-use ratatui::buffer::Buffer;
+use ratatui::buffer::{Buffer, Cell};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 
@@ -112,6 +112,23 @@ pub(crate) fn put_hspan(
         if px >= area.x && px < area.x + area.width {
             buf[(px, y)].set_symbol(sym).set_style(style);
         }
+    }
+}
+
+/// Paint two stacked pixels into one cell with half blocks. `None` leaves
+/// that half unpainted.
+pub(crate) fn put_half_block(cell: &mut Cell, upper: Option<Color>, lower: Option<Color>) {
+    match (upper, lower) {
+        (Some(u), Some(l)) => {
+            cell.set_symbol("▀").set_fg(u).set_bg(l);
+        }
+        (Some(u), None) => {
+            cell.set_symbol("▀").set_fg(u);
+        }
+        (None, Some(l)) => {
+            cell.set_symbol("▄").set_fg(l);
+        }
+        (None, None) => {}
     }
 }
 

@@ -4,7 +4,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Color;
 
-use super::{AudioFrame, Visualizer};
+use super::{put_half_block, AudioFrame, Visualizer};
 use crate::config::Config;
 use crate::dsp::Analyzer;
 use crate::theme::ThemeId;
@@ -25,15 +25,8 @@ const MAX_SLICES: usize = 500;
 impl Spectrogram {
     pub fn new(cfg: &Config) -> Self {
         Self {
-            analyzer: Analyzer::new(
-                cfg.fft_size,
-                BANDS,
-                cfg.freq_min,
-                cfg.freq_max,
-                cfg.gain_db,
-                cfg.auto_gain,
-                0, // fastest smoothing: the waterfall itself provides history
-            ),
+            // Fastest smoothing: the waterfall itself provides history.
+            analyzer: Analyzer::new(cfg, BANDS).with_fixed_smoothing(0),
             history: VecDeque::new(),
             acc: 0.0,
         }
@@ -42,8 +35,7 @@ impl Spectrogram {
 
 impl Visualizer for Spectrogram {
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, _max_bars: usize, dt: f32) {
-        self.analyzer.gain_db = cfg.gain_db;
-        self.analyzer.auto_gain = cfg.auto_gain;
+        self.analyzer.sync(cfg);
         self.analyzer.update(frame.mono, frame.rate, dt, frame.silent);
 
         let slice = cfg.spectrogram.slice_ms / 1000.0;
@@ -90,18 +82,7 @@ impl Visualizer for Spectrogram {
                 let lower =
                     slice_at(row * 2 + 1).and_then(|s| color(s[band], age_of(row * 2 + 1)));
                 let cell = &mut buf[(area.x + col as u16, area.y + row as u16)];
-                match (upper, lower) {
-                    (Some(u), Some(l)) => {
-                        cell.set_symbol("▀").set_fg(u).set_bg(l);
-                    }
-                    (Some(u), None) => {
-                        cell.set_symbol("▀").set_fg(u);
-                    }
-                    (None, Some(l)) => {
-                        cell.set_symbol("▄").set_fg(l);
-                    }
-                    (None, None) => {}
-                }
+                put_half_block(cell, upper, lower);
             }
         }
     }

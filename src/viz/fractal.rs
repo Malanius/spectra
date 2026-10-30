@@ -1,7 +1,7 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
-use super::{AudioFrame, OnsetDetector, Visualizer};
+use super::{put_half_block, AudioFrame, OnsetDetector, Visualizer};
 use crate::config::Config;
 use crate::theme::ThemeId;
 
@@ -142,19 +142,7 @@ impl Visualizer for Fractal {
                 };
                 let upper = color_at(row as f32 * 2.0 + 0.5);
                 let lower = color_at(row as f32 * 2.0 + 1.5);
-                let cell = &mut buf[(area.x + col, area.y + row)];
-                match (upper, lower) {
-                    (Some(u), Some(l)) => {
-                        cell.set_symbol("▀").set_fg(u).set_bg(l);
-                    }
-                    (Some(u), None) => {
-                        cell.set_symbol("▀").set_fg(u);
-                    }
-                    (None, Some(l)) => {
-                        cell.set_symbol("▄").set_fg(l);
-                    }
-                    (None, None) => {}
-                }
+                put_half_block(&mut buf[(area.x + col, area.y + row)], upper, lower);
             }
         }
     }

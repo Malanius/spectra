@@ -3,6 +3,8 @@ use std::sync::Arc;
 use realfft::num_complex::Complex;
 use realfft::{RealFftPlanner, RealToComplex};
 
+use crate::config::Config;
+
 /// (name, attack, decay) — lerp factors per frame at ~60 fps.
 pub const SMOOTHING_PRESETS: [(&str, f32, f32); 3] = [
     ("fast", 0.95, 0.45),
@@ -63,23 +65,20 @@ pub struct Analyzer {
     n_bars: usize,
     freq_min: f32,
     freq_max: f32,
-    pub gain_db: f32,
-    pub auto_gain: bool,
-    pub smoothing: usize,
+    gain_db: f32,
+    auto_gain: bool,
+    smoothing: usize,
+    /// Smoothing set by `with_fixed_smoothing`; `sync` leaves it alone.
+    fixed_smoothing: bool,
     pub agg: BandAgg,
     agc_ceil_db: f32,
 }
 
 impl Analyzer {
-    pub fn new(
-        fft_size: usize,
-        n_bars: usize,
-        freq_min: f32,
-        freq_max: f32,
-        gain_db: f32,
-        auto_gain: bool,
-        smoothing: usize,
-    ) -> Self {
+    /// Analyzer with `n_bars` bands, taking FFT size, frequency range, gain
+    /// and smoothing from `cfg`.
+    pub fn new(cfg: &Config, n_bars: usize) -> Self {
+        let fft_size = cfg.fft_size;
         let mut planner = RealFftPlanner::<f32>::new();
         let fft = planner.plan_fft_forward(fft_size);
         let window: Vec<f32> = (0..fft_size)
@@ -106,16 +105,33 @@ impl Analyzer {
             peak_hold: Vec::new(),
             rate: 0.0,
             n_bars: 0,
-            freq_min,
-            freq_max,
-            gain_db,
-            auto_gain,
-            smoothing: smoothing.min(SMOOTHING_PRESETS.len() - 1),
+            freq_min: cfg.freq_min,
+            freq_max: cfg.freq_max,
+            gain_db: cfg.gain_db,
+            auto_gain: cfg.auto_gain,
+            smoothing: cfg.smoothing.min(SMOOTHING_PRESETS.len() - 1),
+            fixed_smoothing: false,
             agg: BandAgg::Energy,
             agc_ceil_db: -20.0,
         };
         a.set_bars(n_bars);
         a
+    }
+
+    /// Pin the smoothing preset so it no longer follows the config.
+    pub fn with_fixed_smoothing(mut self, smoothing: usize) -> Self {
+        self.smoothing = smoothing.min(SMOOTHING_PRESETS.len() - 1);
+        self.fixed_smoothing = true;
+        self
+    }
+
+    /// Pick up the live gain and smoothing settings (changed by key presses).
+    pub fn sync(&mut self, cfg: &Config) {
+        self.gain_db = cfg.gain_db;
+        self.auto_gain = cfg.auto_gain;
+        if !self.fixed_smoothing {
+            self.smoothing = cfg.smoothing.min(SMOOTHING_PRESETS.len() - 1);
+        }
     }
 
     pub fn bars(&self) -> &[f32] {

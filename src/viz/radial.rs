@@ -19,15 +19,7 @@ const BANDS: usize = 48;
 impl Radial {
     pub fn new(cfg: &Config) -> Self {
         Self {
-            analyzer: Analyzer::new(
-                cfg.fft_size,
-                BANDS,
-                cfg.freq_min,
-                cfg.freq_max,
-                cfg.gain_db,
-                cfg.auto_gain,
-                cfg.smoothing,
-            ),
+            analyzer: Analyzer::new(cfg, BANDS),
             pulse: 0.0,
         }
     }
@@ -35,9 +27,7 @@ impl Radial {
 
 impl Visualizer for Radial {
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, _max_bars: usize, dt: f32) {
-        self.analyzer.gain_db = cfg.gain_db;
-        self.analyzer.auto_gain = cfg.auto_gain;
-        self.analyzer.smoothing = cfg.smoothing;
+        self.analyzer.sync(cfg);
         self.analyzer.update(frame.mono, frame.rate, dt, frame.silent);
 
         let bars = self.analyzer.bars();

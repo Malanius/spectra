@@ -16,24 +16,14 @@ pub struct Bars {
 impl Bars {
     pub fn new(cfg: &Config) -> Self {
         Self {
-            analyzer: Analyzer::new(
-                cfg.fft_size,
-                cfg.bars,
-                cfg.freq_min,
-                cfg.freq_max,
-                cfg.gain_db,
-                cfg.auto_gain,
-                cfg.smoothing,
-            ),
+            analyzer: Analyzer::new(cfg, cfg.bars),
         }
     }
 }
 
 impl Visualizer for Bars {
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, max_bars: usize, dt: f32) {
-        self.analyzer.gain_db = cfg.gain_db;
-        self.analyzer.auto_gain = cfg.auto_gain;
-        self.analyzer.smoothing = cfg.smoothing;
+        self.analyzer.sync(cfg);
         self.analyzer.agg = BandAgg::from_key(&cfg.band_agg).unwrap_or(BandAgg::Energy);
         self.analyzer.set_bars(cfg.bars.clamp(4, max_bars));
         self.analyzer.update(frame.mono, frame.rate, dt, frame.silent);

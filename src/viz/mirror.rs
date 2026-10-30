@@ -20,20 +20,9 @@ pub struct Mirror {
 
 impl Mirror {
     pub fn new(cfg: &Config) -> Self {
-        let mk = || {
-            Analyzer::new(
-                cfg.fft_size,
-                cfg.bars,
-                cfg.freq_min,
-                cfg.freq_max,
-                cfg.gain_db,
-                cfg.auto_gain,
-                cfg.smoothing,
-            )
-        };
         Self {
-            left: mk(),
-            right: mk(),
+            left: Analyzer::new(cfg, cfg.bars),
+            right: Analyzer::new(cfg, cfg.bars),
             side_buf: Vec::new(),
         }
     }
@@ -55,9 +44,7 @@ impl Visualizer for Mirror {
         };
         let agg = BandAgg::from_key(&cfg.band_agg).unwrap_or(BandAgg::Energy);
         for (analyzer, samples) in [(&mut self.left, top), (&mut self.right, bottom)] {
-            analyzer.gain_db = cfg.gain_db;
-            analyzer.auto_gain = cfg.auto_gain;
-            analyzer.smoothing = cfg.smoothing;
+            analyzer.sync(cfg);
             analyzer.agg = agg;
             analyzer.set_bars(n);
             analyzer.update(samples, frame.rate, dt, frame.silent);
