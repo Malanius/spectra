@@ -90,8 +90,8 @@ from that table.
 | `t`     | cycle color theme                         |
 | `d`     | pick capture device                       |
 | `f`     | hide/show header & footer (focus mode)    |
-| `?`     | help                                      |
-| `q`     | quit (settings are saved)                 |
+| `?` `h` | help                                      |
+| `q` `Esc` | quit (settings are saved)               |
 
 ## Themes
 

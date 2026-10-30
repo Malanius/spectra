@@ -149,34 +149,52 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
         .fg(theme.accent())
         .add_modifier(Modifier::BOLD);
     let txt = Style::default().fg(theme.dim());
-    let line = Line::from(vec![
-        Span::styled(" v/V", key),
-        Span::styled(" style  ", txt),
-        Span::styled("m", key),
-        Span::styled(" menu  ", txt),
-        Span::styled("↑↓", key),
-        Span::styled(" gain  ", txt),
-        Span::styled("+-", key),
-        Span::styled(" bars  ", txt),
-        Span::styled("s", key),
-        Span::styled(" smooth  ", txt),
-        Span::styled("p", key),
-        Span::styled(" peaks  ", txt),
-        Span::styled("a", key),
-        Span::styled(" agc  ", txt),
-        Span::styled("t", key),
-        Span::styled(" theme  ", txt),
-        Span::styled("d", key),
-        Span::styled(" device  ", txt),
-        Span::styled("f", key),
-        Span::styled(" focus  ", txt),
-        Span::styled("?", key),
-        Span::styled(" help  ", txt),
-        Span::styled("q", key),
-        Span::styled(" quit", txt),
-    ]);
-    frame.render_widget(Paragraph::new(line), area);
+    let spans: Vec<Span> = KEYS
+        .iter()
+        .enumerate()
+        .flat_map(|(i, k)| {
+            let sep = if i == 0 { " " } else { "  " };
+            [
+                Span::styled(format!("{sep}{}", k.footer_key), key),
+                Span::styled(format!(" {}", k.footer_label), txt),
+            ]
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
+
+/// One key binding as shown in the footer and the help popup. Keep in sync
+/// with `App::on_key`.
+struct KeyHelp {
+    footer_key: &'static str,
+    footer_label: &'static str,
+    help_key: &'static str,
+    help_text: &'static str,
+}
+
+const fn key_help(
+    footer_key: &'static str,
+    footer_label: &'static str,
+    help_key: &'static str,
+    help_text: &'static str,
+) -> KeyHelp {
+    KeyHelp { footer_key, footer_label, help_key, help_text }
+}
+
+const KEYS: [KeyHelp; 12] = [
+    key_help("v/V", "style", "v / V", "next / previous visualization style"),
+    key_help("m", "menu", "m", "visualization style menu"),
+    key_help("↑↓", "gain", "↑ / ↓", "input gain up / down"),
+    key_help("+-", "bars", "+ / -", "more / fewer bars"),
+    key_help("s", "smooth", "s", "cycle smoothing (fast/medium/smooth)"),
+    key_help("p", "peaks", "p", "toggle peak-hold caps"),
+    key_help("a", "agc", "a", "toggle auto gain"),
+    key_help("t", "theme", "t", "cycle color theme"),
+    key_help("d", "device", "d", "pick capture device"),
+    key_help("f", "focus", "f", "hide/show header & footer"),
+    key_help("?", "help", "? / h", "this help"),
+    key_help("q", "quit", "q / Esc", "quit (settings are saved)"),
+];
 
 fn popup_rect(frame: &Frame, width: u16, height: u16) -> Rect {
     let a = frame.area();
@@ -190,26 +208,12 @@ fn draw_help(frame: &mut Frame, app: &App) {
     let key = Style::default()
         .fg(theme.accent())
         .add_modifier(Modifier::BOLD);
-    let rows: [(&str, &str); 12] = [
-        ("v / V", "next / previous visualization style"),
-        ("m", "visualization style menu"),
-        ("f", "hide/show header & footer"),
-        ("↑ / ↓", "input gain up / down"),
-        ("+ / -", "more / fewer bars"),
-        ("s", "cycle smoothing (fast/medium/smooth)"),
-        ("p", "toggle peak-hold caps"),
-        ("a", "toggle auto gain"),
-        ("t", "cycle color theme"),
-        ("d", "pick capture device"),
-        ("?", "this help"),
-        ("q / Esc", "quit (settings are saved)"),
-    ];
-    let lines: Vec<Line> = rows
+    let lines: Vec<Line> = KEYS
         .iter()
-        .map(|(k, v)| {
+        .map(|k| {
             Line::from(vec![
-                Span::styled(format!("  {k:<8}"), key),
-                Span::raw(format!(" {v}")),
+                Span::styled(format!("  {:<8}", k.help_key), key),
+                Span::raw(format!(" {}", k.help_text)),
             ])
         })
         .collect();
