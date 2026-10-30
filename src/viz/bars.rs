@@ -4,7 +4,7 @@ use ratatui::style::Style;
 
 use super::{bar_layout, draw_bar, AudioFrame, BarColumn, Grow, Visualizer};
 use crate::config::Config;
-use crate::dsp::{Analyzer, BandAgg};
+use crate::dsp::Analyzer;
 use crate::theme::ThemeId;
 
 /// Classic hi-fi look: vertical bars with falling peak-hold caps and a
@@ -24,7 +24,7 @@ impl Bars {
 impl Visualizer for Bars {
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, max_bars: usize, dt: f32) {
         self.analyzer.sync(cfg);
-        self.analyzer.agg = BandAgg::from_key(&cfg.band_agg).unwrap_or(BandAgg::Energy);
+        self.analyzer.agg = cfg.band_agg;
         self.analyzer.set_bars(cfg.bars.clamp(4, max_bars));
         self.analyzer.update(frame.mono, frame.rate, dt, frame.silent);
     }

@@ -10,7 +10,6 @@ use crate::audio::{enumerate_devices, AudioDevice, Capture, CaptureTarget};
 use crate::config::Config;
 use crate::dsp::{Analyzer, SMOOTHING_PRESETS};
 use crate::nowplaying::{self, NowPlaying};
-use crate::theme::ThemeId;
 use crate::ui;
 use crate::viz::{self, AudioFeatures, AudioFrame, Visualizer};
 
@@ -33,7 +32,6 @@ pub enum Popup {
 
 pub struct App {
     pub cfg: Config,
-    pub theme: ThemeId,
     pub capture: Option<Capture>,
     pub device_label: String,
     pub popup: Popup,
@@ -62,7 +60,6 @@ const FEATURE_BANDS: usize = 24;
 
 impl App {
     pub fn new(cfg: Config, initial: CaptureTarget, device_label: String) -> Result<Self> {
-        let theme = ThemeId::from_key(&cfg.theme).unwrap_or(ThemeId::Terminal);
         let visualizers = viz::create_all(&cfg);
         let viz_idx = viz::STYLES
             .iter()
@@ -73,7 +70,6 @@ impl App {
         let feature_analyzer = Analyzer::new(&cfg, FEATURE_BANDS).with_fixed_smoothing(0);
         let mut app = Self {
             cfg,
-            theme,
             capture: None,
             device_label,
             popup: Popup::None,
@@ -367,9 +363,8 @@ impl App {
                 ));
             }
             KeyCode::Char('t') => {
-                self.theme = self.theme.next();
-                self.cfg.theme = self.theme.key().to_string();
-                self.set_status(format!("theme: {}", self.theme.display_name()));
+                self.cfg.theme = self.cfg.theme.next();
+                self.set_status(format!("theme: {}", self.cfg.theme.display_name()));
             }
             KeyCode::Char('d') => match enumerate_devices() {
                 Ok(devices) => {

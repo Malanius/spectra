@@ -5,13 +5,40 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::dsp::BandAgg;
+use crate::theme::ThemeId;
+use crate::viz;
+
+/// A config value stored as a string key. Parsing is lenient: keys are
+/// case-insensitive, aliases are accepted, and an unknown key falls back to
+/// the default instead of failing the whole file.
+pub trait ConfigKey: Copy + Default {
+    fn from_key(s: &str) -> Option<Self>;
+    /// Canonical key written back to the config file.
+    fn key(self) -> &'static str;
+}
+
+/// `#[serde(with = "key_serde")]` for [`ConfigKey`] fields.
+mod key_serde {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    use super::ConfigKey;
+
+    pub fn serialize<S: Serializer, T: ConfigKey>(v: &T, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(v.key())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>, T: ConfigKey>(d: D) -> Result<T, D::Error> {
+        let s = String::deserialize(d)?;
+        Ok(T::from_key(&s).unwrap_or_default())
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    /// Theme key, see `ThemeId::key()`.
-    pub theme: String,
-    /// Visualization style id, see `viz::IDS`.
+    #[serde(with = "key_serde")]
+    pub theme: ThemeId,
+    /// Visualization style id, see `viz::STYLES`.
     pub visualizer: String,
     /// Desired number of frequency bars (clamped to what fits on screen).
     pub bars: usize,
@@ -39,7 +66,8 @@ pub struct Config {
     pub freq_min: f32,
     pub freq_max: f32,
     /// Band aggregation for bars/mirror: "energy", "max", "avg", "hybrid".
-    pub band_agg: String,
+    #[serde(with = "key_serde")]
+    pub band_agg: BandAgg,
     pub mirror: MirrorCfg,
     pub scope: ScopeCfg,
     pub fire: FireCfg,
@@ -50,14 +78,35 @@ pub struct Config {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct MirrorCfg {
-    /// "lr" = left/right channels, "ms" = mid/side (stereo width view).
-    pub mode: String,
+    #[serde(with = "key_serde")]
+    pub mode: MirrorMode,
 }
 
-impl Default for MirrorCfg {
-    fn default() -> Self {
-        Self { mode: "lr".into() }
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MirrorMode {
+    /// Left channel up, right channel down.
+    #[default]
+    Lr,
+    /// Mid (L+R) up, side (L−R) down: a stereo width view.
+    Ms,
+}
+
+impl ConfigKey for MirrorMode {
+    fn from_key(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "lr" => Some(Self::Lr),
+            "ms" => Some(Self::Ms),
+            _ => None,
+        }
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Lr => "lr",
+            Self::Ms => "ms",
+        }
     }
 }
 
@@ -138,7 +187,7 @@ impl Default for SpectrogramCfg {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            theme: "terminal".into(),
+            theme: ThemeId::default(),
             visualizer: "bars".into(),
             bars: 32,
             bar_width: 2,
@@ -153,7 +202,7 @@ impl Default for Config {
             fft_size: 2048,
             freq_min: 30.0,
             freq_max: 16000.0,
-            band_agg: "energy".into(),
+            band_agg: BandAgg::default(),
             mirror: MirrorCfg::default(),
             scope: ScopeCfg::default(),
             fire: FireCfg::default(),
@@ -192,6 +241,9 @@ impl Config {
 
     /// Clamp values to sane ranges (protects against hand-edited configs).
     pub fn sanitize(&mut self) {
+        if !viz::STYLES.iter().any(|s| s.id == self.visualizer) {
+            self.visualizer = "bars".into();
+        }
         self.bars = self.bars.clamp(8, 96);
         self.bar_width = self.bar_width.clamp(1, 8);
         self.gap = self.gap.min(4);
@@ -202,12 +254,6 @@ impl Config {
         }
         self.freq_min = self.freq_min.clamp(10.0, 500.0);
         self.freq_max = self.freq_max.clamp(self.freq_min * 4.0, 22000.0);
-        if BandAgg::from_key(&self.band_agg).is_none() {
-            self.band_agg = "energy".into();
-        }
-        if !["lr", "ms"].contains(&self.mirror.mode.to_ascii_lowercase().as_str()) {
-            self.mirror.mode = "lr".into();
-        }
         self.scope.window_ms = self.scope.window_ms.clamp(5.0, 200.0);
         self.fire.cooling = self.fire.cooling.clamp(0.25, 4.0);
         self.particles.density = self.particles.density.clamp(0.1, 4.0);
@@ -215,5 +261,56 @@ impl Config {
         self.spectrogram.slice_ms = self.spectrogram.slice_ms.clamp(10.0, 200.0);
         self.spectrogram.floor = self.spectrogram.floor.clamp(0.005, 0.3);
         self.spectrogram.fade = self.spectrogram.fade.clamp(0.0, 0.9);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keys_parse_leniently() {
+        let cfg: Config = toml::from_str(
+            "theme = \"Mocha\"\nband_agg = \"PEAK\"\n[mirror]\nmode = \"MS\"\n",
+        )
+        .unwrap();
+        assert_eq!(cfg.theme, ThemeId::CatppuccinMocha);
+        assert_eq!(cfg.band_agg, BandAgg::Max);
+        assert_eq!(cfg.mirror.mode, MirrorMode::Ms);
+    }
+
+    #[test]
+    fn unknown_key_resets_only_that_field() {
+        let cfg: Config = toml::from_str("theme = \"nope\"\nbars = 40\n").unwrap();
+        assert_eq!(cfg.theme, ThemeId::Terminal);
+        assert_eq!(cfg.bars, 40);
+    }
+
+    #[test]
+    fn keys_round_trip() {
+        let cfg = Config {
+            theme: ThemeId::TokyoNight,
+            band_agg: BandAgg::Hybrid,
+            mirror: MirrorCfg {
+                mode: MirrorMode::Ms,
+            },
+            ..Config::default()
+        };
+        let text = toml::to_string_pretty(&cfg).unwrap();
+        assert!(text.contains("theme = \"tokyo-night\""));
+        let back: Config = toml::from_str(&text).unwrap();
+        assert_eq!(back.theme, cfg.theme);
+        assert_eq!(back.band_agg, cfg.band_agg);
+        assert_eq!(back.mirror.mode, cfg.mirror.mode);
+    }
+
+    #[test]
+    fn sanitize_resets_unknown_style() {
+        let mut cfg = Config {
+            visualizer: "nope".into(),
+            ..Config::default()
+        };
+        cfg.sanitize();
+        assert_eq!(cfg.visualizer, "bars");
     }
 }

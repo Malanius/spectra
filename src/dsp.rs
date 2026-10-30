@@ -3,7 +3,7 @@ use std::sync::Arc;
 use realfft::num_complex::Complex;
 use realfft::{RealFftPlanner, RealToComplex};
 
-use crate::config::Config;
+use crate::config::{Config, ConfigKey};
 
 /// (name, attack, decay) — lerp factors per frame at ~60 fps.
 pub const SMOOTHING_PRESETS: [(&str, f32, f32); 3] = [
@@ -13,9 +13,10 @@ pub const SMOOTHING_PRESETS: [(&str, f32, f32); 3] = [
 ];
 
 /// How the FFT bins inside one display band are folded into a single value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum BandAgg {
     /// Total band energy (default) — flat response for pink-ish material.
+    #[default]
     Energy,
     /// Loudest bin — punchy, but narrow spikes dominate.
     Max,
@@ -25,14 +26,23 @@ pub enum BandAgg {
     Hybrid,
 }
 
-impl BandAgg {
-    pub fn from_key(s: &str) -> Option<Self> {
+impl ConfigKey for BandAgg {
+    fn from_key(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
             "energy" | "sum" => Some(Self::Energy),
             "max" | "peak" => Some(Self::Max),
             "avg" | "mean" => Some(Self::Avg),
             "hybrid" | "peak-avg" => Some(Self::Hybrid),
             _ => None,
+        }
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Energy => "energy",
+            Self::Max => "max",
+            Self::Avg => "avg",
+            Self::Hybrid => "hybrid",
         }
     }
 }

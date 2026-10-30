@@ -45,7 +45,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     };
 
     app.viz()
-        .render(viz_area, frame.buffer_mut(), app.theme, &app.cfg);
+        .render(viz_area, frame.buffer_mut(), app.cfg.theme, &app.cfg);
 
     // With the HUD hidden the status line has no home — float it over the
     // visualization so feedback stays visible.
@@ -53,7 +53,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
         if let Some(msg) = app.status() {
             let area = frame.area();
             let style = Style::default()
-                .fg(app.theme.peak_color())
+                .fg(app.cfg.theme.peak_color())
                 .add_modifier(Modifier::BOLD);
             let buf = frame.buffer_mut();
             for (i, ch) in msg.chars().enumerate() {
@@ -75,7 +75,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
 }
 
 fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
-    let theme = app.theme;
+    let theme = app.cfg.theme;
     let mut spans = vec![
         Span::styled(
             " ▎SPECTRA ",
@@ -117,7 +117,7 @@ fn draw_now_playing(
     app: &App,
     np: &crate::nowplaying::NowPlaying,
 ) {
-    let theme = app.theme;
+    let theme = app.cfg.theme;
     let dim = Style::default().fg(theme.dim());
     let mut spans = vec![Span::styled(
         if np.playing { " ▶ " } else { " ⏸ " },
@@ -143,7 +143,7 @@ fn draw_now_playing(
 }
 
 fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
-    let theme = app.theme;
+    let theme = app.cfg.theme;
     let key = Style::default()
         .fg(theme.accent())
         .add_modifier(Modifier::BOLD);
@@ -185,7 +185,7 @@ fn popup_rect(frame: &Frame, width: u16, height: u16) -> Rect {
 }
 
 fn draw_help(frame: &mut Frame, app: &App) {
-    let theme = app.theme;
+    let theme = app.cfg.theme;
     let key = Style::default()
         .fg(theme.accent())
         .add_modifier(Modifier::BOLD);
@@ -226,7 +226,7 @@ fn draw_help(frame: &mut Frame, app: &App) {
 }
 
 fn draw_styles(frame: &mut Frame, app: &App, selected: usize) {
-    let theme = app.theme;
+    let theme = app.cfg.theme;
     let current = app.viz_index();
     let items: Vec<ListItem> = crate::viz::STYLES
         .iter()
@@ -264,7 +264,7 @@ fn draw_devices(
     devices: &[crate::audio::AudioDevice],
     selected: usize,
 ) {
-    let theme = app.theme;
+    let theme = app.cfg.theme;
     let mut items = vec![ListItem::new("  Default output (monitor)")];
     items.extend(devices.iter().map(|d| {
         let tag = if d.is_sink { "monitor" } else { "input" };

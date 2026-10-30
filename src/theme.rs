@@ -1,9 +1,12 @@
 use ratatui::style::Color;
 
+use crate::config::ConfigKey;
+
 /// Built-in color themes. `Terminal` maps the classic green/yellow/red layout
 /// onto ANSI palette colors so the terminal's own theme decides the exact look.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ThemeId {
+    #[default]
     Terminal,
     Classic,
     CatppuccinMocha,
@@ -96,30 +99,6 @@ impl ThemeId {
         }
     }
 
-    /// Stable identifier used in the config file and --theme flag.
-    pub fn key(self) -> &'static str {
-        match self {
-            ThemeId::Terminal => "terminal",
-            ThemeId::Classic => "classic",
-            ThemeId::CatppuccinMocha => "catppuccin",
-            ThemeId::Gruvbox => "gruvbox",
-            ThemeId::Nord => "nord",
-            ThemeId::TokyoNight => "tokyo-night",
-        }
-    }
-
-    pub fn from_key(s: &str) -> Option<ThemeId> {
-        match s.to_ascii_lowercase().as_str() {
-            "terminal" | "ansi" => Some(ThemeId::Terminal),
-            "classic" | "hifi" | "hi-fi" => Some(ThemeId::Classic),
-            "catppuccin" | "catppuccin-mocha" | "mocha" => Some(ThemeId::CatppuccinMocha),
-            "gruvbox" => Some(ThemeId::Gruvbox),
-            "nord" => Some(ThemeId::Nord),
-            "tokyo-night" | "tokyonight" | "tokyo" => Some(ThemeId::TokyoNight),
-            _ => None,
-        }
-    }
-
     fn palette(self) -> &'static Palette {
         match self {
             ThemeId::Terminal => &TERMINAL,
@@ -193,6 +172,32 @@ impl ThemeId {
             ThemeId::Gruvbox => Color::Rgb(0x92, 0x83, 0x74),
             ThemeId::Nord => Color::Rgb(0x4c, 0x56, 0x6a),
             ThemeId::TokyoNight => Color::Rgb(0x56, 0x5f, 0x89),
+        }
+    }
+}
+
+impl ConfigKey for ThemeId {
+    fn from_key(s: &str) -> Option<ThemeId> {
+        match s.to_ascii_lowercase().as_str() {
+            "terminal" | "ansi" => Some(ThemeId::Terminal),
+            "classic" | "hifi" | "hi-fi" => Some(ThemeId::Classic),
+            "catppuccin" | "catppuccin-mocha" | "mocha" => Some(ThemeId::CatppuccinMocha),
+            "gruvbox" => Some(ThemeId::Gruvbox),
+            "nord" => Some(ThemeId::Nord),
+            "tokyo-night" | "tokyonight" | "tokyo" => Some(ThemeId::TokyoNight),
+            _ => None,
+        }
+    }
+
+    /// Stable identifier used in the config file and --theme flag.
+    fn key(self) -> &'static str {
+        match self {
+            ThemeId::Terminal => "terminal",
+            ThemeId::Classic => "classic",
+            ThemeId::CatppuccinMocha => "catppuccin",
+            ThemeId::Gruvbox => "gruvbox",
+            ThemeId::Nord => "nord",
+            ThemeId::TokyoNight => "tokyo-night",
         }
     }
 }

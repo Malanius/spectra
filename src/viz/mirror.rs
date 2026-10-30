@@ -3,8 +3,8 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 
 use super::{bar_layout, draw_bar, AudioFrame, BarColumn, Grow, Visualizer};
-use crate::config::Config;
-use crate::dsp::{Analyzer, BandAgg};
+use crate::config::{Config, MirrorMode};
+use crate::dsp::Analyzer;
 use crate::theme::ThemeId;
 
 /// Old-deck stereo view: two spectra around a center line, each with its
@@ -31,7 +31,7 @@ impl Mirror {
 impl Visualizer for Mirror {
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, max_bars: usize, dt: f32) {
         let n = cfg.bars.clamp(4, max_bars);
-        let ms = cfg.mirror.mode.eq_ignore_ascii_case("ms");
+        let ms = cfg.mirror.mode == MirrorMode::Ms;
         if ms {
             self.side_buf.clear();
             self.side_buf
@@ -42,10 +42,9 @@ impl Visualizer for Mirror {
         } else {
             (frame.left, frame.right)
         };
-        let agg = BandAgg::from_key(&cfg.band_agg).unwrap_or(BandAgg::Energy);
         for (analyzer, samples) in [(&mut self.left, top), (&mut self.right, bottom)] {
             analyzer.sync(cfg);
-            analyzer.agg = agg;
+            analyzer.agg = cfg.band_agg;
             analyzer.set_bars(n);
             analyzer.update(samples, frame.rate, dt, frame.silent);
         }
@@ -88,10 +87,9 @@ impl Visualizer for Mirror {
 
         // Channel tags in the top/bottom-left corners when there is room.
         if area.width >= 4 && area.height >= 7 {
-            let (top_tag, bottom_tag) = if cfg.mirror.mode.eq_ignore_ascii_case("ms") {
-                ('M', 'S')
-            } else {
-                ('L', 'R')
+            let (top_tag, bottom_tag) = match cfg.mirror.mode {
+                MirrorMode::Ms => ('M', 'S'),
+                MirrorMode::Lr => ('L', 'R'),
             };
             buf[(area.x + 1, area.y)]
                 .set_char(top_tag)

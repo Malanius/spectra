@@ -11,7 +11,7 @@ use anyhow::{bail, Result};
 use clap::Parser;
 
 use audio::CaptureTarget;
-use config::Config;
+use config::{Config, ConfigKey};
 use theme::ThemeId;
 
 /// Retro hi-fi spectrum analyzer for the terminal, powered by PipeWire.
@@ -57,7 +57,7 @@ fn main() -> Result<()> {
     cfg.sanitize();
     if let Some(t) = &cli.theme {
         match ThemeId::from_key(t) {
-            Some(id) => cfg.theme = id.key().to_string(),
+            Some(id) => cfg.theme = id,
             None => bail!(
                 "unknown theme '{t}' (expected one of: terminal, classic, catppuccin, gruvbox, nord, tokyo-night)"
             ),
@@ -67,10 +67,7 @@ fn main() -> Result<()> {
         cfg.bars = b.clamp(8, 96);
     }
     if let Some(s) = cli.style {
-        cfg.visualizer = s;
-    }
-    if !viz::STYLES.iter().any(|s| s.id == cfg.visualizer) {
-        cfg.visualizer = "bars".into(); // unknown id from a hand-edited config
+        cfg.visualizer = s; // clap already checked it against viz::STYLES
     }
 
     // Resolve the capture target: CLI flag beats config, both fall back to
