@@ -128,12 +128,9 @@ impl Drop for Capture {
     }
 }
 
-fn run_capture(
-    target: CaptureTarget,
-    data: StreamData,
-    pw_receiver: pw::channel::Receiver<Terminate>,
-    ready_tx: &mpsc::Sender<Result<(), String>>,
-) -> Result<()> {
+/// Initialize PipeWire and connect to the daemon. The core keeps its
+/// context, and through it the loop, alive.
+fn connect() -> Result<(pw::main_loop::MainLoopRc, pw::core::CoreRc)> {
     pw::init();
     let mainloop =
         pw::main_loop::MainLoopRc::new(None).context("failed to create PipeWire main loop")?;
@@ -142,6 +139,16 @@ fn run_capture(
     let core = context
         .connect_rc(None)
         .context("failed to connect to PipeWire (is the daemon running?)")?;
+    Ok((mainloop, core))
+}
+
+fn run_capture(
+    target: CaptureTarget,
+    data: StreamData,
+    pw_receiver: pw::channel::Receiver<Terminate>,
+    ready_tx: &mpsc::Sender<Result<(), String>>,
+) -> Result<()> {
+    let (mainloop, core) = connect()?;
 
     let _receiver = pw_receiver.attach(mainloop.loop_(), {
         let mainloop = mainloop.clone();
@@ -266,14 +273,7 @@ fn run_capture(
 /// List audio sinks (playback devices, captured via monitor) and sources
 /// (microphones etc.) currently known to PipeWire.
 pub fn enumerate_devices() -> Result<Vec<AudioDevice>> {
-    pw::init();
-    let mainloop =
-        pw::main_loop::MainLoopRc::new(None).context("failed to create PipeWire main loop")?;
-    let context = pw::context::ContextRc::new(&mainloop, None)
-        .context("failed to create PipeWire context")?;
-    let core = context
-        .connect_rc(None)
-        .context("failed to connect to PipeWire (is the daemon running?)")?;
+    let (mainloop, core) = connect()?;
     let registry = core.get_registry().context("failed to get registry")?;
 
     let devices = Rc::new(RefCell::new(Vec::<AudioDevice>::new()));

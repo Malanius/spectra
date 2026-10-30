@@ -22,17 +22,37 @@ pub type Shared = Arc<Mutex<Option<NowPlaying>>>;
 pub fn spawn_poller() -> Shared {
     let shared: Shared = Arc::new(Mutex::new(None));
     let out = shared.clone();
-    let _ = thread::Builder::new().name("mpris".into()).spawn(move || loop {
-        let info = poll();
-        *out.lock().unwrap() = info;
-        thread::sleep(Duration::from_millis(1000));
+    let _ = thread::Builder::new().name("mpris".into()).spawn(move || {
+        // One D-Bus connection for the poller's lifetime; rebuilt only when
+        // a lookup fails (e.g. the session bus went away).
+        let mut finder = None;
+        loop {
+            if finder.is_none() {
+                finder = PlayerFinder::new().ok();
+            }
+            let info = match finder.as_ref().map(poll) {
+                Some(Ok(info)) => info,
+                Some(Err(())) => {
+                    finder = None;
+                    None
+                }
+                None => None,
+            };
+            *out.lock().unwrap() = info;
+            thread::sleep(Duration::from_millis(1000));
+        }
     });
     shared
 }
 
-fn poll() -> Option<NowPlaying> {
-    let finder = PlayerFinder::new().ok()?;
-    let players = finder.find_all().ok()?;
+/// `Err` means the player lookup itself failed and the finder should be
+/// rebuilt; `Ok(None)` just means nothing is playing.
+fn poll(finder: &PlayerFinder) -> Result<Option<NowPlaying>, ()> {
+    let players = finder.find_all().map_err(|_| ())?;
+    Ok(pick(players))
+}
+
+fn pick(players: Vec<mpris::Player>) -> Option<NowPlaying> {
 
     // Prefer a player that is actually playing; fall back to a paused one.
     // Skip playerctld — it only mirrors another player and would show up
