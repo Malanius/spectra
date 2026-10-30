@@ -6,7 +6,9 @@ use anyhow::Result;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::DefaultTerminal;
 
-use crate::audio::{enumerate_devices, AudioDevice, Capture, CaptureTarget, DEFAULT_DEVICE_LABEL};
+use crate::audio::{
+    enumerate_devices, AudioDevice, Capture, CaptureTarget, LinkedSource, DEFAULT_DEVICE_LABEL,
+};
 use crate::config::{Config, MAX_BARS, MIN_BARS};
 use crate::dsp::{Analyzer, SMOOTHING_PRESETS};
 use crate::nowplaying::{self, NowPlaying};
@@ -33,7 +35,13 @@ pub enum Popup {
 pub struct App {
     pub cfg: Config,
     pub capture: Option<Capture>,
+    /// What the header shows: the node actually being captured.
     pub device_label: String,
+    /// Label of the device that was asked for. Differs from `device_label`
+    /// while WirePlumber has rerouted the stream, e.g. after an unplug.
+    requested_label: String,
+    /// Last linked source reported by the capture thread.
+    linked: Option<LinkedSource>,
     pub popup: Popup,
     pub should_quit: bool,
     /// How many bars fit at the current terminal width (updated every frame).
@@ -71,7 +79,9 @@ impl App {
         let mut app = Self {
             cfg,
             capture: None,
+            requested_label: device_label.clone(),
             device_label,
+            linked: None,
             popup: Popup::None,
             should_quit: false,
             max_bars: MAX_BARS,
@@ -134,8 +144,43 @@ impl App {
         self.status = Some((msg, Instant::now()));
     }
 
+    /// Follow WirePlumber's routing: show the node the stream is really
+    /// linked from, and say so when it isn't the requested device.
+    fn check_linked_source(&mut self) {
+        let Some(cap) = &self.capture else { return };
+        let now = cap.source.lock().unwrap().clone();
+        if now == self.linked {
+            return;
+        }
+        let was_rerouted = self.is_rerouted();
+        self.linked = now;
+        // Only a requested device can be rerouted. The default output follows
+        // whatever WirePlumber picks and keeps its generic label. While
+        // unlinked, keep the label; the visualizer already shows silence.
+        let (Some(want), Some(src)) = (&self.cfg.device, &self.linked) else {
+            return;
+        };
+        if src.name == *want {
+            self.device_label = self.requested_label.clone();
+            if was_rerouted {
+                self.set_status(format!("{} is back", self.requested_label));
+            }
+        } else {
+            self.device_label = src.description.clone();
+            self.set_status(format!(
+                "{} unavailable, capturing {}",
+                self.requested_label, src.description
+            ));
+        }
+    }
+
+    fn is_rerouted(&self) -> bool {
+        matches!((&self.cfg.device, &self.linked), (Some(want), Some(src)) if src.name != *want)
+    }
+
     /// Pull the latest window of samples and advance the active visualizer.
     fn tick(&mut self, dt: f32) {
+        self.check_linked_source();
         let fft_size = self.cfg.fft_size;
         let (rate, silent) = match self.capture.as_mut() {
             Some(cap) => {
@@ -219,9 +264,11 @@ impl App {
                 self.last_pushed = 0;
                 self.history_left.clear();
                 self.history_right.clear();
+                self.linked = None;
                 self.cfg.device = target.node_name;
                 self.cfg.device_is_sink = target.is_sink;
                 self.set_status(format!("capturing: {label}"));
+                self.requested_label = label.clone();
                 self.device_label = label;
             }
             Err(e) => {
@@ -235,7 +282,9 @@ impl App {
     /// Leaves everything unchanged if even that fails.
     fn use_default_device(&mut self) -> Result<()> {
         self.capture = Some(Capture::start(CaptureTarget::default())?);
+        self.linked = None;
         self.device_label = DEFAULT_DEVICE_LABEL.into();
+        self.requested_label = DEFAULT_DEVICE_LABEL.into();
         self.cfg.device = None;
         self.cfg.device_is_sink = true;
         Ok(())

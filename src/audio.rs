@@ -1,7 +1,8 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
 
 use anyhow::{anyhow, Context as _, Result};
@@ -41,6 +42,15 @@ impl Default for CaptureTarget {
     }
 }
 
+/// The node the capture stream is actually linked from. WirePlumber may
+/// pick a different one than requested, e.g. the default output while the
+/// requested device is unplugged.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkedSource {
+    pub name: String,
+    pub description: String,
+}
+
 struct Terminate;
 
 /// A running PipeWire capture stream on its own thread. The RT process
@@ -51,6 +61,8 @@ pub struct Capture {
     consumer: HeapCons<(f32, f32)>,
     pub sample_rate: Arc<AtomicU32>,
     pub pushed: Arc<AtomicU64>,
+    /// Updated by the capture thread whenever the stream's links change.
+    pub source: Arc<Mutex<Option<LinkedSource>>>,
     sender: pw::channel::Sender<Terminate>,
     handle: Option<JoinHandle<()>>,
 }
@@ -67,11 +79,13 @@ impl Capture {
         let (producer, consumer) = HeapRb::<(f32, f32)>::new(RING_CAPACITY).split();
         let sample_rate = Arc::new(AtomicU32::new(0));
         let pushed = Arc::new(AtomicU64::new(0));
+        let source = Arc::new(Mutex::new(None));
         let (pw_sender, pw_receiver) = pw::channel::channel::<Terminate>();
         let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
 
         let t_rate = sample_rate.clone();
         let t_pushed = pushed.clone();
+        let t_source = source.clone();
         let handle = std::thread::Builder::new()
             .name("pw-capture".into())
             .spawn(move || {
@@ -81,7 +95,7 @@ impl Capture {
                     sample_rate: t_rate,
                     pushed: t_pushed,
                 };
-                if let Err(e) = run_capture(target, data, pw_receiver, &ready_tx) {
+                if let Err(e) = run_capture(target, data, t_source, pw_receiver, &ready_tx) {
                     let _ = ready_tx.send(Err(e.to_string()));
                 }
             })
@@ -91,6 +105,7 @@ impl Capture {
             consumer,
             sample_rate,
             pushed,
+            source,
             sender: pw_sender,
             handle: Some(handle),
         };
@@ -142,13 +157,90 @@ fn connect() -> Result<(pw::main_loop::MainLoopRc, pw::core::CoreRc)> {
     Ok((mainloop, core))
 }
 
+/// The slice of the PipeWire graph needed to tell which node feeds the
+/// capture stream. Lives on the capture thread's main loop.
+struct Graph {
+    /// The stream's own node; `SPA_ID_INVALID` until it has one.
+    own_node: u32,
+    /// Node id to (name, description).
+    nodes: HashMap<u32, (String, String)>,
+    /// Link id to (output node, input node).
+    links: HashMap<u32, (u32, u32)>,
+    out: Arc<Mutex<Option<LinkedSource>>>,
+}
+
+impl Graph {
+    fn publish(&self) {
+        let source = self
+            .links
+            .values()
+            .filter(|&&(_, input)| input == self.own_node)
+            .find_map(|(output, _)| self.nodes.get(output))
+            .map(|(name, description)| LinkedSource {
+                name: name.clone(),
+                description: description.clone(),
+            });
+        *self.out.lock().unwrap() = source;
+    }
+}
+
 fn run_capture(
     target: CaptureTarget,
     data: StreamData,
+    source: Arc<Mutex<Option<LinkedSource>>>,
     pw_receiver: pw::channel::Receiver<Terminate>,
     ready_tx: &mpsc::Sender<Result<(), String>>,
 ) -> Result<()> {
     let (mainloop, core) = connect()?;
+
+    // Track nodes and links so we can report what the stream is linked from.
+    let graph = Rc::new(RefCell::new(Graph {
+        own_node: spa::sys::SPA_ID_INVALID,
+        nodes: HashMap::new(),
+        links: HashMap::new(),
+        out: source,
+    }));
+    let registry = core.get_registry().context("failed to get registry")?;
+    let _reg_listener = registry
+        .add_listener_local()
+        .global({
+            let graph = graph.clone();
+            move |global| {
+                let Some(props) = global.props else { return };
+                let mut g = graph.borrow_mut();
+                match global.type_ {
+                    pw::types::ObjectType::Node => {
+                        let Some(name) = props.get("node.name") else { return };
+                        let description = props
+                            .get("node.description")
+                            .or_else(|| props.get("node.nick"))
+                            .unwrap_or(name);
+                        g.nodes.insert(global.id, (name.to_string(), description.to_string()));
+                    }
+                    pw::types::ObjectType::Link => {
+                        let node = |key| props.get(key).and_then(|v| v.parse().ok());
+                        let (Some(output), Some(input)) =
+                            (node("link.output.node"), node("link.input.node"))
+                        else {
+                            return;
+                        };
+                        g.links.insert(global.id, (output, input));
+                    }
+                    _ => return,
+                }
+                g.publish();
+            }
+        })
+        .global_remove({
+            let graph = graph.clone();
+            move |id| {
+                let mut g = graph.borrow_mut();
+                if g.links.remove(&id).is_some() || g.nodes.remove(&id).is_some() {
+                    g.publish();
+                }
+            }
+        })
+        .register();
 
     let _receiver = pw_receiver.attach(mainloop.loop_(), {
         let mainloop = mainloop.clone();
@@ -174,6 +266,17 @@ fn run_capture(
 
     let _listener = stream
         .add_local_listener_with_user_data(data)
+        .state_changed({
+            let graph = graph.clone();
+            move |stream, _, _, _| {
+                let mut g = graph.borrow_mut();
+                let id = stream.node_id();
+                if id != g.own_node {
+                    g.own_node = id;
+                    g.publish();
+                }
+            }
+        })
         .param_changed(|_, udata, id, param| {
             let Some(param) = param else { return };
             if id != spa::param::ParamType::Format.as_raw() {
