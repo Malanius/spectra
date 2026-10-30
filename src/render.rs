@@ -623,14 +623,17 @@ fn write_timeline(rows: &[Row], fonts: &Fonts, path: &Path) -> Result<()> {
     for (lane, (name, vals)) in series.iter().enumerate() {
         let top = lane * lane_h;
         let bottom = top + lane_h - 6;
-        img.rect(label_w, bottom, plot_w, 1, (0x30, 0x30, 0x38));
+        // Scale to 0..max, or min..max when the series goes negative.
         let max = vals.iter().fold(0.0f32, |a, &v| a.max(v));
+        let min = vals.iter().fold(0.0f32, |a, &v| a.min(v));
+        let range = if min < 0.0 { format!("{min:.2}..{max:.2}") } else { format!("max {max:.3}") };
         fonts.text(&mut img, PAD, top + 8, name, FG);
-        fonts.text(&mut img, PAD, top + 8 + fonts.cell_h, &format!("max {max:.3}"), LABEL);
-        if max <= 0.0 {
+        fonts.text(&mut img, PAD, top + 8 + fonts.cell_h, &range, LABEL);
+        if max - min <= 0.0 {
             continue;
         }
-        let y_of = |v: f32| bottom - ((v / max) * (lane_h - 14) as f32) as usize;
+        let y_of = |v: f32| bottom - (((v - min) / (max - min)) * (lane_h - 14) as f32) as usize;
+        img.rect(label_w, y_of(0.0), plot_w, 1, (0x30, 0x30, 0x38));
         if name.ends_with("onset") {
             for (i, &v) in vals.iter().enumerate() {
                 if v > 0.0 {
