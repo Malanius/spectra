@@ -43,8 +43,47 @@ const RANGE_DB: f32 = 64.0;
 const PEAK_HOLD_S: f32 = 0.7;
 /// Peak cap fall acceleration, in bar-heights per second squared.
 const PEAK_GRAVITY: f32 = 3.5;
-/// Anything below this raw level is treated as silence by the AGC.
+/// Anything below this raw band level is treated as silence by the AGC.
 const SILENCE_DB: f32 = -75.0;
+
+/// Auto-gain ceiling: follows the recent loudest level, rising fast and
+/// releasing slowly, so any source fills the display. Shared by `Analyzer`
+/// and the level-based styles.
+pub struct Agc {
+    ceil_db: f32,
+    /// Levels at or below this are ignored, so pauses don't pump the gain.
+    silence_db: f32,
+}
+
+impl Agc {
+    pub fn new(silence_db: f32) -> Self {
+        Self {
+            ceil_db: -20.0,
+            silence_db,
+        }
+    }
+
+    /// Adapt the ceiling toward `db`. Does nothing with auto gain off.
+    pub fn follow(&mut self, db: f32, auto: bool, dt: f32) {
+        if !auto || db <= self.silence_db {
+            return;
+        }
+        let k = if db > self.ceil_db {
+            (dt * 8.0).min(1.0) // rise fast
+        } else {
+            (dt * 0.15).min(1.0) // release slowly
+        };
+        self.ceil_db += (db - self.ceil_db) * k;
+        self.ceil_db = self.ceil_db.clamp(-50.0, 0.0);
+    }
+
+    /// Map `db` to 0..1 over the `range_db` below the ceiling. Without auto
+    /// gain the ceiling is a fixed 0 dBFS; manual gain shifts it either way.
+    pub fn norm(&self, db: f32, auto: bool, gain_db: f32, range_db: f32) -> f32 {
+        let ceil = if auto { self.ceil_db + 2.0 } else { 0.0 } - gain_db;
+        ((db - (ceil - range_db)) / range_db).clamp(0.0, 1.0)
+    }
+}
 
 pub struct Analyzer {
     fft: Arc<dyn RealToComplex<f32>>,
@@ -71,7 +110,7 @@ pub struct Analyzer {
     /// Smoothing set by `with_fixed_smoothing`; `sync` leaves it alone.
     fixed_smoothing: bool,
     pub agg: BandAgg,
-    agc_ceil_db: f32,
+    agc: Agc,
 }
 
 impl Analyzer {
@@ -112,7 +151,7 @@ impl Analyzer {
             smoothing: cfg.smoothing.min(SMOOTHING_PRESETS.len() - 1),
             fixed_smoothing: false,
             agg: BandAgg::Energy,
-            agc_ceil_db: -20.0,
+            agc: Agc::new(SILENCE_DB),
         };
         a.set_bars(n_bars);
         a
@@ -202,30 +241,12 @@ impl Analyzer {
             self.analyze(samples);
         }
 
-        // Ceiling: with AGC on, follow the recent loudest band so any source
-        // fills the display; otherwise a fixed 0 dBFS ceiling. Manual gain
-        // shifts the ceiling in both modes.
-        if self.auto_gain {
-            let frame_max = self
-                .raw_db
-                .iter()
-                .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-            if frame_max > SILENCE_DB {
-                let k = if frame_max > self.agc_ceil_db {
-                    (dt * 8.0).min(1.0) // rise fast
-                } else {
-                    (dt * 0.15).min(1.0) // release slowly
-                };
-                self.agc_ceil_db += (frame_max - self.agc_ceil_db) * k;
-                self.agc_ceil_db = self.agc_ceil_db.clamp(-50.0, 0.0);
-            }
-        }
-        let ceil = if self.auto_gain {
-            self.agc_ceil_db + 2.0
-        } else {
-            0.0
-        } - self.gain_db;
-        let floor = ceil - RANGE_DB;
+        // The AGC ceiling follows the recent loudest band.
+        let frame_max = self
+            .raw_db
+            .iter()
+            .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+        self.agc.follow(frame_max, self.auto_gain, dt);
 
         let (_, attack, decay) = SMOOTHING_PRESETS[self.smoothing];
         // Presets are tuned for 60 fps; scale lerp factors to the actual dt.
@@ -234,7 +255,9 @@ impl Analyzer {
         let decay = 1.0 - (1.0 - decay).powf(scale);
 
         for i in 0..self.n_bars {
-            let target = ((self.raw_db[i] - floor) / RANGE_DB).clamp(0.0, 1.0);
+            let target = self
+                .agc
+                .norm(self.raw_db[i], self.auto_gain, self.gain_db, RANGE_DB);
             let a = if target > self.bars[i] { attack } else { decay };
             self.bars[i] += (target - self.bars[i]) * a;
 

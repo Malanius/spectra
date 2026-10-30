@@ -2,7 +2,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 
-use super::{AudioFrame, BrailleCanvas, Visualizer};
+use super::{AudioFrame, BrailleCanvas, PeakScaler, Visualizer};
 use crate::config::Config;
 use crate::theme::ThemeId;
 
@@ -13,7 +13,8 @@ pub struct Scope {
     left: Vec<f32>,
     right: Vec<f32>,
     rate: u32,
-    gain: f32,
+    /// Slow auto-scale so quiet material still shows a visible trace.
+    scaler: PeakScaler,
 }
 
 impl Scope {
@@ -22,13 +23,13 @@ impl Scope {
             left: Vec::new(),
             right: Vec::new(),
             rate: 0,
-            gain: 1.0,
+            scaler: PeakScaler::new(0.9),
         }
     }
 }
 
 impl Visualizer for Scope {
-    fn update(&mut self, frame: &AudioFrame, cfg: &Config, _max_bars: usize, dt: f32) {
+    fn update(&mut self, frame: &AudioFrame, _cfg: &Config, _max_bars: usize, dt: f32) {
         self.rate = frame.rate;
         if frame.silent {
             self.left.clear();
@@ -39,18 +40,7 @@ impl Visualizer for Scope {
         self.left.extend_from_slice(frame.left);
         self.right.clear();
         self.right.extend_from_slice(frame.right);
-
-        // Slow auto-scale so quiet material still shows a visible trace;
-        // manual gain stacks on top.
-        let peak = frame.features.peak.max(1e-4);
-        let target = (0.9 / peak).clamp(0.5, 30.0);
-        let k = if target < self.gain {
-            (dt * 8.0).min(1.0)
-        } else {
-            (dt * 0.7).min(1.0)
-        };
-        self.gain += (target - self.gain) * k;
-        let _ = cfg;
+        self.scaler.follow(frame.features.peak, dt);
     }
 
     fn render(&self, area: Rect, buf: &mut Buffer, theme: ThemeId, cfg: &Config) {
@@ -58,8 +48,7 @@ impl Visualizer for Scope {
             return;
         }
         let stereo = area.height >= 14;
-        let manual = 10f32.powf(cfg.gain_db / 20.0);
-        let scale = self.gain * manual;
+        let scale = self.scaler.scale(cfg.gain_db);
         let window_s = cfg.scope.window_ms / 1000.0;
 
         if stereo {

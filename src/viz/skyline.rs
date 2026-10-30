@@ -4,8 +4,9 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 
-use super::{put_hspan, AudioFrame, LevelNorm, Visualizer, EIGHTHS};
+use super::{put_hspan, AudioFrame, Visualizer, EIGHTHS, LEVEL_SILENCE_DB};
 use crate::config::Config;
+use crate::dsp::Agc;
 use crate::theme::ThemeId;
 
 /// Strip-chart of the loudness envelope: time scrolls right-to-left like a
@@ -13,7 +14,7 @@ use crate::theme::ThemeId;
 /// The RMS body is solid; short peaks leave a bright ridge line above it.
 pub struct Skyline {
     history: VecDeque<(f32, f32)>, // (rms 0..1, peak 0..1)
-    norm: LevelNorm,
+    agc: Agc,
     acc: f32,
     pending_rms: f32,
     pending_peak: f32,
@@ -28,7 +29,7 @@ impl Skyline {
     pub fn new(_cfg: &Config) -> Self {
         Self {
             history: VecDeque::new(),
-            norm: LevelNorm::new(),
+            agc: Agc::new(LEVEL_SILENCE_DB),
             acc: 0.0,
             pending_rms: 0.0,
             pending_peak: 0.0,
@@ -41,14 +42,11 @@ impl Visualizer for Skyline {
         let (rms, peak) = if frame.silent {
             (0.0, 0.0)
         } else {
-            let rms =
-                self.norm
-                    .norm(frame.features.rms_db, cfg.auto_gain, cfg.gain_db, RANGE_DB, dt);
+            let rms_db = frame.features.rms_db;
             let peak_db = 20.0 * (frame.features.peak + 1e-9).log10();
-            let peak = self
-                .norm
-                .norm(peak_db, cfg.auto_gain, cfg.gain_db, RANGE_DB, 0.0);
-            (rms, peak)
+            self.agc.follow(rms_db, cfg.auto_gain, dt);
+            let norm = |db| self.agc.norm(db, cfg.auto_gain, cfg.gain_db, RANGE_DB);
+            (norm(rms_db), norm(peak_db))
         };
         self.pending_rms = self.pending_rms.max(rms);
         self.pending_peak = self.pending_peak.max(peak);

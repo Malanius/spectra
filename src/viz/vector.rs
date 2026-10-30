@@ -2,7 +2,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 
-use super::{AudioFrame, BrailleCanvas, Visualizer};
+use super::{AudioFrame, BrailleCanvas, PeakScaler, Visualizer};
 use crate::config::Config;
 use crate::theme::ThemeId;
 
@@ -13,7 +13,7 @@ use crate::theme::ThemeId;
 pub struct Vector {
     /// Persistence field in a fixed square virtual resolution.
     field: Vec<f32>,
-    gain: f32,
+    scaler: PeakScaler,
     /// Smoothed L/R correlation, -1 (out of phase) .. +1 (mono).
     corr: f32,
 }
@@ -28,7 +28,7 @@ impl Vector {
     pub fn new(_cfg: &Config) -> Self {
         Self {
             field: vec![0.0; N * N],
-            gain: 1.0,
+            scaler: PeakScaler::new(0.85),
             corr: 0.0,
         }
     }
@@ -48,15 +48,8 @@ impl Visualizer for Vector {
         }
 
         // Auto-scale on the recent peak; manual gain stacks on top.
-        let peak = frame.features.peak.max(1e-4);
-        let target = (0.85 / peak).clamp(0.5, 30.0);
-        let k = if target < self.gain {
-            (dt * 8.0).min(1.0)
-        } else {
-            (dt * 0.7).min(1.0)
-        };
-        self.gain += (target - self.gain) * k;
-        let scale = self.gain * 10f32.powf(cfg.gain_db / 20.0);
+        self.scaler.follow(frame.features.peak, dt);
+        let scale = self.scaler.scale(cfg.gain_db);
 
         // Plot the freshest slice of samples (~one frame's worth), and
         // measure the L/R correlation over the same slice.

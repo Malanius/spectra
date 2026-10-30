@@ -190,29 +190,39 @@ impl OnsetDetector {
     }
 }
 
-/// Maps a dB level to 0..1 with the same manual-gain / auto-gain semantics
-/// as the spectrum analyzer, for styles that work on raw levels.
-pub(crate) struct LevelNorm {
-    ceil_db: f32,
+/// AGC silence threshold for the broadband RMS / peak levels that the
+/// level-based styles feed into [`Agc`](crate::dsp::Agc).
+pub(crate) const LEVEL_SILENCE_DB: f32 = -70.0;
+
+/// Linear auto-scale for the waveform styles: steers the recent sample
+/// peak toward `headroom` of full scale. Shrinks fast on loud peaks and
+/// grows slowly, so quiet material still shows a visible trace.
+pub(crate) struct PeakScaler {
+    gain: f32,
+    headroom: f32,
 }
 
-impl LevelNorm {
-    pub fn new() -> Self {
-        Self { ceil_db: -20.0 }
+impl PeakScaler {
+    pub fn new(headroom: f32) -> Self {
+        Self {
+            gain: 1.0,
+            headroom,
+        }
     }
 
-    pub fn norm(&mut self, db: f32, auto: bool, gain_db: f32, range: f32, dt: f32) -> f32 {
-        if auto && db > -70.0 {
-            let k = if db > self.ceil_db {
-                (dt * 8.0).min(1.0)
-            } else {
-                (dt * 0.15).min(1.0)
-            };
-            self.ceil_db += (db - self.ceil_db) * k;
-            self.ceil_db = self.ceil_db.clamp(-50.0, 0.0);
-        }
-        let ceil = if auto { self.ceil_db + 2.0 } else { 0.0 } - gain_db;
-        ((db - (ceil - range)) / range).clamp(0.0, 1.0)
+    pub fn follow(&mut self, peak: f32, dt: f32) {
+        let target = (self.headroom / peak.max(1e-4)).clamp(0.5, 30.0);
+        let k = if target < self.gain {
+            (dt * 8.0).min(1.0)
+        } else {
+            (dt * 0.7).min(1.0)
+        };
+        self.gain += (target - self.gain) * k;
+    }
+
+    /// Auto-scale factor with the manual gain stacked on top.
+    pub fn scale(&self, gain_db: f32) -> f32 {
+        self.gain * 10f32.powf(gain_db / 20.0)
     }
 }
 

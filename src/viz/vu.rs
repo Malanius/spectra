@@ -2,15 +2,16 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 
-use super::{rms_db, AudioFrame, BrailleCanvas, LevelNorm, Visualizer};
+use super::{rms_db, AudioFrame, BrailleCanvas, Visualizer, LEVEL_SILENCE_DB};
 use crate::config::Config;
+use crate::dsp::Agc;
 use crate::theme::ThemeId;
 
 /// Two analog VU meters with needle physics (a slightly underdamped spring,
 /// like the real mechanical movement) and latching peak LEDs.
 pub struct Vu {
     channels: [Channel; 2],
-    norm: LevelNorm,
+    agc: Agc,
 }
 
 struct Channel {
@@ -36,7 +37,7 @@ impl Vu {
                 Channel::new(),
                 Channel::new(),
             ],
-            norm: LevelNorm::new(),
+            agc: Agc::new(LEVEL_SILENCE_DB),
         }
     }
 }
@@ -69,16 +70,13 @@ impl Channel {
 impl Visualizer for Vu {
     fn update(&mut self, frame: &AudioFrame, cfg: &Config, _max_bars: usize, dt: f32) {
         // Adapt the shared ceiling once from the loudest channel, then read
-        // both channels against it (dt = 0 → no further adaptation).
+        // both channels against it.
         let db_l = if frame.silent { -120.0 } else { rms_db(frame.left) };
         let db_r = if frame.silent { -120.0 } else { rms_db(frame.right) };
-        let loudest = db_l.max(db_r);
-        let _ = self
-            .norm
-            .norm(loudest, cfg.auto_gain, cfg.gain_db, RANGE_DB, dt);
+        self.agc.follow(db_l.max(db_r), cfg.auto_gain, dt);
 
         for (ch, db) in self.channels.iter_mut().zip([db_l, db_r]) {
-            ch.target = self.norm.norm(db, cfg.auto_gain, cfg.gain_db, RANGE_DB, 0.0);
+            ch.target = self.agc.norm(db, cfg.auto_gain, cfg.gain_db, RANGE_DB);
             ch.db_display = if db < -90.0 { -90.0 } else { db };
             if ch.target > 0.92 {
                 ch.peak_hold = 0.8;
