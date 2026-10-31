@@ -251,6 +251,23 @@ impl Config {
 
     /// Clamp values to sane ranges (protects against hand-edited configs).
     pub fn sanitize(&mut self) {
+        // TOML accepts nan and inf. Clamping keeps NaN, and a NaN bound
+        // panics, so reset non-finite values to their defaults first.
+        let d = Config::default();
+        let finite = |v: &mut f32, default: f32| {
+            if !v.is_finite() {
+                *v = default;
+            }
+        };
+        finite(&mut self.gain_db, d.gain_db);
+        finite(&mut self.freq_min, d.freq_min);
+        finite(&mut self.freq_max, d.freq_max);
+        finite(&mut self.scope.window_ms, d.scope.window_ms);
+        finite(&mut self.fire.cooling, d.fire.cooling);
+        finite(&mut self.particles.density, d.particles.density);
+        finite(&mut self.spectrogram.slice_ms, d.spectrogram.slice_ms);
+        finite(&mut self.spectrogram.floor, d.spectrogram.floor);
+        finite(&mut self.spectrogram.fade, d.spectrogram.fade);
         if !viz::STYLES.iter().any(|s| s.id == self.visualizer) {
             self.visualizer = "bars".into();
         }

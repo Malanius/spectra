@@ -51,8 +51,8 @@ pub fn draw(frame: &mut Frame, app: &App) {
     // With the HUD hidden the status line has no home — float it over the
     // visualization so feedback stays visible.
     if !app.cfg.hud {
-        if let Some(msg) = app.status() {
-            let area = frame.area();
+        let area = frame.area();
+        if let Some(msg) = app.status().filter(|_| area.height > 0) {
             let style = Style::default()
                 .fg(app.cfg.theme.peak_color())
                 .add_modifier(Modifier::BOLD);
