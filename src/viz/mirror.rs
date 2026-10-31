@@ -42,12 +42,18 @@ impl Visualizer for Mirror {
         } else {
             (frame.left, frame.right)
         };
+        let mut frame_max = f32::NEG_INFINITY;
         for (analyzer, samples) in [(&mut self.left, top), (&mut self.right, bottom)] {
             analyzer.sync(cfg);
             analyzer.agg = cfg.band_agg;
             analyzer.set_bars(n);
-            analyzer.update(samples, frame.rate, dt, frame.silent);
+            frame_max = frame_max.max(analyzer.analyze_frame(samples, frame.rate, frame.silent));
         }
+        // One shared gain: separate AGCs scaled each half to its own peak,
+        // so side looked as big as mid and an off-center mix looked
+        // centered.
+        self.left.advance(frame_max, dt);
+        self.right.advance(frame_max, dt);
     }
 
     fn render(&self, area: Rect, buf: &mut Buffer, theme: ThemeId, cfg: &Config) {

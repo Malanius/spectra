@@ -244,6 +244,16 @@ impl Analyzer {
     /// animation by `dt` seconds. Pass `silent = true` to animate toward zero
     /// when no fresh audio is arriving (stream paused / sink suspended).
     pub fn update(&mut self, samples: &[f32], rate: u32, dt: f32, silent: bool) {
+        let frame_max = self.analyze_frame(samples, rate, silent);
+        self.advance(frame_max, dt);
+    }
+
+    /// First half of [`update`](Self::update): analyze one window and return
+    /// its loudest band in dB, the AGC's input. Analyzers that must share a
+    /// gain (two halves of one display) pass the max of theirs to
+    /// [`advance`](Self::advance), so a quieter signal stays visibly
+    /// quieter instead of being scaled up to match.
+    pub fn analyze_frame(&mut self, samples: &[f32], rate: u32, silent: bool) -> f32 {
         if rate as f32 != self.rate && rate > 0 {
             self.rate = rate as f32;
             self.compute_bands();
@@ -257,11 +267,13 @@ impl Analyzer {
             self.analyze(samples);
         }
 
+        self.raw_db.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b))
+    }
+
+    /// Second half of [`update`](Self::update): adapt the AGC ceiling to
+    /// `frame_max` and animate the bars and peaks by `dt` seconds.
+    pub fn advance(&mut self, frame_max: f32, dt: f32) {
         // The AGC ceiling follows the recent loudest band.
-        let frame_max = self
-            .raw_db
-            .iter()
-            .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
         self.agc.follow(frame_max, self.auto_gain, dt);
 
         let (_, attack, decay) = SMOOTHING_PRESETS[self.smoothing];
@@ -378,6 +390,23 @@ mod tests {
             let off = (a.band_freq(loudest) / freq).ln().abs();
             assert!(off < 0.2, "{freq} Hz landed in band at {} Hz", a.band_freq(loudest));
         }
+    }
+
+    #[test]
+    fn shared_gain_keeps_a_quieter_signal_lower() {
+        let cfg = Config::default();
+        let loud = sine(1000.0, 0.5, cfg.fft_size);
+        let quiet = sine(1000.0, 0.05, cfg.fft_size); // -20 dB
+        let (mut a, mut b) = (Analyzer::new(&cfg, 32), Analyzer::new(&cfg, 32));
+        for _ in 0..120 {
+            let m = a.analyze_frame(&loud, RATE, false).max(b.analyze_frame(&quiet, RATE, false));
+            a.advance(m, DT);
+            b.advance(m, DT);
+        }
+        let top = |x: &Analyzer| x.bars().iter().fold(0.0f32, |m, &v| m.max(v));
+        // 20 dB of the 64 dB range.
+        let gap = top(&a) - top(&b);
+        assert!((gap - 20.0 / RANGE_DB).abs() < 0.05, "gap {gap}");
     }
 
     #[test]
