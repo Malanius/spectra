@@ -156,6 +156,7 @@ fn render_style(
             left: &left,
             right: &right,
             rate: audio.rate,
+            fresh: audio.end(t).saturating_sub(audio.end(t - dt)).min(fft),
             silent: false,
             features,
         };
@@ -223,9 +224,14 @@ impl Audio {
 
     /// Fill the analysis window that ends at time `t`, zero-padded before
     /// the start of the file, like the app's history buffer at startup.
+    /// Sample index just past the window ending at `t`.
+    fn end(&self, t: f32) -> usize {
+        ((t.max(0.0) * self.rate as f32) as usize).min(self.left.len())
+    }
+
     fn window(&self, t: f32, left: &mut [f32], right: &mut [f32], mono: &mut [f32]) {
         let n = left.len();
-        let end = ((t * self.rate as f32) as usize).min(self.left.len());
+        let end = self.end(t);
         for i in 0..n {
             let (l, r) = match (end + i).checked_sub(n) {
                 Some(j) => (self.left[j], self.right[j]),

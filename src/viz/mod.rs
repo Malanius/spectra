@@ -82,6 +82,9 @@ pub struct AudioFrame<'a> {
     pub left: &'a [f32],
     pub right: &'a [f32],
     pub rate: u32,
+    /// Samples that arrived since the previous frame; they are the tail of
+    /// the buffers. Styles that keep a longer history append these.
+    pub fresh: usize,
     /// True when no fresh samples are arriving (paused / suspended stream).
     pub silent: bool,
     pub features: AudioFeatures,
@@ -366,6 +369,12 @@ impl PeakScaler {
 
     pub fn follow(&mut self, peak: f32, dt: f32) {
         let target = (self.headroom / peak.max(1e-4)).clamp(0.5, 30.0);
+        // A peak that would go off the plot cuts the gain at once: easing
+        // down over ~100 ms clipped every kick after a quiet stretch.
+        if peak * self.gain > 1.0 {
+            self.gain = target;
+            return;
+        }
         let k = if target < self.gain {
             (dt * 8.0).min(1.0)
         } else {

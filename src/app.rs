@@ -194,6 +194,7 @@ impl App {
         self.check_linked_source();
         self.check_auto_cycle();
         let fft_size = self.cfg.fft_size;
+        let mut fresh = 0;
         let (rate, silent) = match self.capture.as_mut() {
             Some(cap) => {
                 let hl = &mut self.history_left;
@@ -201,6 +202,7 @@ impl App {
                 cap.drain(|l, r| {
                     hl.push_back(l);
                     hr.push_back(r);
+                    fresh += 1;
                 });
                 while hl.len() > fft_size {
                     hl.pop_front();
@@ -245,6 +247,7 @@ impl App {
             left: &self.left_buf,
             right: &self.right_buf,
             rate,
+            fresh: fresh.min(fft_size),
             silent,
             features,
         };
