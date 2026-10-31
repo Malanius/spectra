@@ -116,20 +116,23 @@ output has opaque structs. Keep the git dependency. The 0.10 API uses
 
 ## Seeing what a style does
 
-`cargo build --release --features render` adds a `render` subcommand that
-runs a WAV file through the same feature extraction and styles as the app,
-at a fixed 60 fps, and writes PNGs you can look at:
+`cargo build --release --features render --target-dir target/render` adds
+a `render` subcommand that runs a WAV file through the same feature
+extraction and styles as the app, at a fixed 60 fps, and writes PNGs you
+can look at. The separate target dir keeps it from replacing the user's
+`target/release/spectra`, which they may be running.
 
 ```sh
 pw-record -P '{ stream.capture.sink=true }' --rate 48000 --channels 2 --format s16 clip.wav
-./target/release/spectra render clip.wav --style ripples,particles --out dir/
+./target/render/release/spectra render clip.wav --style ripples,particles --out dir/
 ```
 
 Per style it writes contact sheets (`sheet_NNN.png`, a frame every 100 ms,
 outlined when an onset fired), `timeline.png` (input features against the
 style's internals) and `metrics.csv`. Styles report their internals through
 `Visualizer::probe`, which exists only with the feature; a probe named
-`*onset` draws as event ticks. Use `--start`/`--duration` to zoom in and
+`*onset` draws as event ticks. Return the same probe names every frame;
+the harness takes them from the first one. Use `--start`/`--duration` to zoom in and
 `--font-size` for a closer look. It uses built-in config defaults unless
 given `--config`. Record with `pw-record` only for as long as needed (wrap
 it in `timeout`).
