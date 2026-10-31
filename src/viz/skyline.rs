@@ -23,7 +23,9 @@ pub struct Skyline {
 /// Seconds per column of history.
 const SLICE: f32 = 0.045;
 const MAX_SLICES: usize = 600;
-const RANGE_DB: f32 = 48.0;
+/// Vertical range below the ceiling. Wide enough to show a breakdown,
+/// narrow enough that the beat moves the body visibly.
+const RANGE_DB: f32 = 36.0;
 
 impl Skyline {
     pub fn new(_cfg: &Config) -> Self {
@@ -44,7 +46,10 @@ impl Visualizer for Skyline {
         } else {
             let rms_db = frame.features.rms_db;
             let peak_db = 20.0 * (frame.features.peak + 1e-9).log10();
-            self.agc.follow(rms_db, cfg.auto_gain, dt);
+            // Ceiling on the peaks: on the RMS, peaks 8-12 dB above it in
+            // mastered music pinned the ridge to the top row. Now the gap
+            // between ridge and body shows the crest factor.
+            self.agc.follow(peak_db, cfg.auto_gain, dt);
             let norm = |db| self.agc.norm(db, cfg.auto_gain, cfg.gain_db, RANGE_DB);
             (norm(rms_db), norm(peak_db))
         };
@@ -61,6 +66,12 @@ impl Visualizer for Skyline {
                 self.history.pop_front();
             }
         }
+    }
+
+    #[cfg(feature = "render")]
+    fn probe(&self) -> Vec<(&'static str, f32)> {
+        let (rms, peak) = self.history.back().copied().unwrap_or((0.0, 0.0));
+        vec![("rms", rms), ("peak", peak), ("ceil", self.agc.ceil_db())]
     }
 
     fn render(&self, area: Rect, buf: &mut Buffer, theme: ThemeId, _cfg: &Config) {
