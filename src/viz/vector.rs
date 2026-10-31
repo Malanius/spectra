@@ -16,6 +16,9 @@ pub struct Vector {
     scaler: PeakScaler,
     /// Smoothed L/R correlation, -1 (out of phase) .. +1 (mono).
     corr: f32,
+    /// Fraction of this frame's samples that fell outside the plot.
+    #[cfg_attr(not(feature = "render"), allow(dead_code))]
+    clipped: f32,
 }
 
 /// Virtual pixel grid edge (square). Braille dots are ~square on screen, so
@@ -23,6 +26,12 @@ pub struct Vector {
 const N: usize = 160;
 /// Phosphor decay rate per second.
 const DECAY: f32 = 7.0;
+/// Phosphor added per sample. The field holds hit density, not brightness:
+/// render tone-maps it, so dense regions keep a gradient instead of
+/// saturating into a flat blob.
+const DEPOSIT: f32 = 0.12;
+/// Density cap, so a long-held mono line can't build up forever.
+const MAX_DENSITY: f32 = 6.0;
 
 impl Vector {
     pub fn new(_cfg: &Config) -> Self {
@@ -30,6 +39,7 @@ impl Vector {
             field: vec![0.0; N * N],
             scaler: PeakScaler::new(0.85),
             corr: 0.0,
+            clipped: 0.0,
         }
     }
 }
@@ -47,34 +57,59 @@ impl Visualizer for Vector {
             return;
         }
 
-        // Auto-scale on the recent peak; manual gain stacks on top.
-        self.scaler.follow(frame.features.peak, dt);
-        let scale = self.scaler.scale(cfg.gain_db);
-
         // Plot the freshest slice of samples (~one frame's worth), and
         // measure the L/R correlation over the same slice.
         let want = ((frame.rate as f32 * dt) as usize + 64).min(frame.left.len());
         let start = frame.left.len() - want;
         let half = (N / 2) as f32;
         let (mut ll, mut rr, mut lr) = (0.0f32, 0.0f32, 0.0f32);
+        // Peak of the plotted coordinates. Mid reaches √2 × the sample peak
+        // for centered material, so scaling on the sample peak overshoots.
+        let mut extent = 0.0f32;
         for (&l, &r) in frame.left[start..].iter().zip(&frame.right[start..]) {
             ll += l * l;
             rr += r * r;
             lr += l * r;
+            extent = extent.max((l + r).abs()).max((l - r).abs());
         }
-        if ll * rr > 1e-12 {
-            let c = lr / (ll * rr).sqrt();
+
+        // Auto-scale on the recent extent; manual gain stacks on top.
+        self.scaler.follow(extent * std::f32::consts::FRAC_1_SQRT_2, dt);
+        let scale = self.scaler.scale(cfg.gain_db);
+        // Only skip when both channels are silent: one silent channel is
+        // a real reading of 0 (hard-panned material), not a missing one.
+        if ll + rr > 1e-9 {
+            let c = lr / (ll * rr).sqrt().max(1e-9);
             self.corr += (c - self.corr) * (dt * 8.0).min(1.0);
         }
+        let mut clipped = 0;
         for (&l, &r) in frame.left[start..].iter().zip(&frame.right[start..]) {
-            // Rotate 45°: x = side (L-R), y = mid (L+R).
-            let x = (l - r) * std::f32::consts::FRAC_1_SQRT_2 * scale;
+            // Rotate 45°: x = side, y = mid (L+R). Side is R-L so that
+            // left-only material leans to the upper left, as on hardware
+            // goniometers.
+            let x = (r - l) * std::f32::consts::FRAC_1_SQRT_2 * scale;
             let y = (l + r) * std::f32::consts::FRAC_1_SQRT_2 * scale;
-            let px = (half + x * half).clamp(0.0, (N - 1) as f32) as usize;
-            let py = (half - y * half).clamp(0.0, (N - 1) as f32) as usize;
+            if x.abs() >= 1.0 || y.abs() >= 1.0 {
+                // Off the plot (manual gain, or a peak the scaler hasn't
+                // caught up with). Clamping would draw a false border.
+                clipped += 1;
+                continue;
+            }
+            let px = (half + x * half) as usize;
+            let py = (half - y * half) as usize;
             let cell = &mut self.field[py * N + px];
-            *cell = (*cell + 0.45).min(1.0);
+            *cell = (*cell + DEPOSIT).min(MAX_DENSITY);
         }
+        self.clipped = clipped as f32 / want.max(1) as f32;
+    }
+
+    #[cfg(feature = "render")]
+    fn probe(&self) -> Vec<(&'static str, f32)> {
+        vec![
+            ("corr", self.corr),
+            ("scale", self.scaler.scale(0.0)),
+            ("clipped", self.clipped),
+        ]
     }
 
     fn render(&self, area: Rect, buf: &mut Buffer, theme: ThemeId, _cfg: &Config) {
@@ -94,7 +129,7 @@ impl Visualizer for Vector {
 
         for py in 0..N {
             for px in 0..N {
-                let v = self.field[py * N + px];
+                let v = 1.0 - (-self.field[py * N + px]).exp();
                 if v < 0.05 {
                     continue;
                 }
@@ -120,6 +155,13 @@ impl Visualizer for Vector {
             buf[(area.x + 1, area.y + area.height / 2)]
                 .set_symbol("S")
                 .set_style(style);
+            // L and R at the top ends of the diagonals, where hard-panned
+            // material points.
+            let (cx, cy) = (area.x + area.width / 2, area.y + area.height / 2);
+            let reach = (edge as u16 / 2 / 2).min(cx - area.x - 1); // dots → cells
+            let ry = (edge as u16 / 2 / 4).min(cy - area.y);
+            buf[(cx - reach, cy - ry)].set_symbol("L").set_style(style);
+            buf[(cx + reach, cy - ry)].set_symbol("R").set_style(style);
         }
 
         // Correlation meter along the bottom: +1 mono … 0 wide … −1 phase
