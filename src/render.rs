@@ -256,10 +256,17 @@ struct Fonts {
 }
 
 impl Fonts {
-    /// The system monospace font plus symbol fallbacks, found via fontconfig.
+    /// The system monospace font plus symbol and CJK fallbacks (matrix
+    /// uses halfwidth katakana), found via fontconfig.
     fn load(size: f32) -> Result<Self> {
         let mut faces = Vec::new();
-        for pattern in ["monospace", "Noto Sans Symbols2", "Noto Sans Symbols", "Noto Sans Math"] {
+        for pattern in [
+            "monospace",
+            "Noto Sans Symbols2",
+            "Noto Sans Symbols",
+            "Noto Sans Math",
+            ":charset=ff71",
+        ] {
             let out = Command::new("fc-match").args(["-f", "%{file}", pattern]).output();
             let Ok(out) = out else { continue };
             let path = String::from_utf8_lossy(&out.stdout).into_owned();
