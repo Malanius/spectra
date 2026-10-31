@@ -21,6 +21,15 @@ pub struct Spectrogram {
 /// Fixed number of frequency columns stored per slice.
 const BANDS: usize = 96;
 const MAX_SLICES: usize = 500;
+/// Brightness curve exponent over the level above the floor. Bars are
+/// AGC-normalized over 64 dB, so in a dense mix most bands sit at 0.4-0.8;
+/// a linear ramp leaves the whole screen equally bright.
+const GAMMA: f32 = 2.2;
+/// ANSI themes can't be dimmed, so brightness picks the palette step
+/// instead: blank below the first threshold, the theme's dim color below
+/// the second.
+const ANSI_BLANK_BELOW: f32 = 0.06;
+const ANSI_DIM_BELOW: f32 = 0.25;
 
 impl Spectrogram {
     pub fn new(cfg: &Config) -> Self {
@@ -49,6 +58,14 @@ impl Visualizer for Spectrogram {
         }
     }
 
+    #[cfg(feature = "render")]
+    fn probe(&self) -> Vec<(&'static str, f32)> {
+        let mut sorted = self.history.back().cloned().unwrap_or_else(|| vec![0.0]);
+        sorted.sort_by(f32::total_cmp);
+        let at = |q: f32| sorted[((sorted.len() - 1) as f32 * q) as usize];
+        vec![("p10", at(0.1)), ("median", at(0.5)), ("p90", at(0.9))]
+    }
+
     fn render(&self, area: Rect, buf: &mut Buffer, theme: ThemeId, cfg: &Config) {
         if area.width == 0 || area.height == 0 || self.history.is_empty() {
             return;
@@ -64,9 +81,14 @@ impl Visualizer for Spectrogram {
             if v < floor {
                 return None;
             }
-            let soft = ((v - floor) / floor).clamp(0.25, 1.0);
-            let k = soft * (1.0 - fade * age);
-            Some(crate::theme::dim_color(theme.bar_color(v), k.max(0.05)))
+            let level = ((v - floor) / (1.0 - floor)).powf(GAMMA);
+            let k = level * (1.0 - fade * age);
+            match theme.bar_color(v) {
+                c @ Color::Rgb(..) => Some(crate::theme::dim_color(c, k.max(0.04))),
+                _ if k < ANSI_BLANK_BELOW => None,
+                _ if k < ANSI_DIM_BELOW => Some(theme.dim()),
+                _ => Some(theme.bar_color(k)),
+            }
         };
 
         for row in 0..area.height as usize {
