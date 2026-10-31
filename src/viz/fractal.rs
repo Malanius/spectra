@@ -1,9 +1,10 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::style::Color;
 
 use super::{put_half_block, AudioFrame, OnsetDetector, Visualizer};
 use crate::config::Config;
-use crate::theme::ThemeId;
+use crate::theme::{dim_color, ThemeId};
 
 /// Morphing Julia set. The constant `c` travels along the boundary of the
 /// Mandelbrot main cardioid — where Julia sets are at their most intricate —
@@ -34,6 +35,11 @@ pub struct Fractal {
 }
 
 const MAX_ITER: u32 = 40;
+/// Escape time (fraction of MAX_ITER) at which a point reaches full
+/// brightness; faster escapes fade toward black.
+const GLOW_T: f32 = 0.35;
+/// ANSI themes can't fade, so faster escapes than this are left blank.
+const ANSI_MIN_T: f32 = 0.14;
 
 impl Fractal {
     pub fn new(_cfg: &Config) -> Self {
@@ -91,7 +97,13 @@ impl Visualizer for Fractal {
 
     #[cfg(feature = "render")]
     fn probe(&self) -> Vec<(&'static str, f32)> {
-        vec![("pop", self.pop), ("zoom_pulse", self.zoom_pulse), ("onset", self.last_onset)]
+        vec![
+            ("theta", self.theta % std::f32::consts::TAU),
+            ("level_s", self.level_s),
+            ("pop", self.pop),
+            ("zoom_pulse", self.zoom_pulse),
+            ("onset", self.last_onset),
+        ]
     }
 
     fn render(&self, area: Rect, buf: &mut Buffer, theme: ThemeId, _cfg: &Config) {
@@ -136,22 +148,49 @@ impl Visualizer for Fractal {
         // Triangular wave keeps palette cycling seamless (no wrap seam).
         let tri = |x: f32| 1.0 - (2.0 * x.fract() - 1.0).abs();
 
+        // Color of one sample point, in screen pixel coordinates.
+        let sample = |px: f32, py: f32| -> Option<Color> {
+            let x = px / px_w * 2.0 * half_w - half_w;
+            let y = half_h - py / px_h * 2.0 * half_h;
+            // Rotate the view plane (mid-driven spin).
+            let (xr, yr) = (x * rc - y * rs, x * rs + y * rc);
+            // Fast escapes are far from the set: fade them toward black so
+            // the fractal glows out of the dark. Drawing them at full
+            // brightness made a flat halo fill the screen, and a hard
+            // cutoff carved a black ellipse.
+            let t = escape(xr, yr)?;
+            match theme.bar_color(tri(t * 2.4 + self.color_phase).clamp(0.0, 1.0)) {
+                c @ Color::Rgb(..) => {
+                    let k = (t / GLOW_T).min(1.0).powf(1.5);
+                    (k > 0.02).then(|| dim_color(c, k))
+                }
+                // ANSI colors can't dim: draw only where the RGB glow
+                // would be past a quarter brightness.
+                c => (t >= ANSI_MIN_T).then_some(c),
+            }
+        };
+        // 2×2 supersampling for RGB themes: near the set neighboring pixels
+        // escape at very different times, so single samples speckled the
+        // boundary with random colors. The set's interior counts as black,
+        // which also anti-aliases its edge.
+        let rgb = matches!(theme.bar_color(0.5), Color::Rgb(..));
+        let pixel = |px: f32, py: f32| -> Option<Color> {
+            if !rgb {
+                return sample(px + 0.5, py + 0.5); // ANSI: no averaging
+            }
+            let (mut r, mut g, mut b, mut lit) = (0u32, 0u32, 0u32, 0);
+            for (dx, dy) in [(0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75)] {
+                if let Some(Color::Rgb(cr, cg, cb)) = sample(px + dx, py + dy) {
+                    (r, g, b, lit) = (r + cr as u32, g + cg as u32, b + cb as u32, lit + 1);
+                }
+            }
+            (lit > 0).then_some(Color::Rgb((r / 4) as u8, (g / 4) as u8, (b / 4) as u8))
+        };
+
         for row in 0..area.height {
             for col in 0..area.width {
-                let x = (col as f32 + 0.5) / px_w * 2.0 * half_w - half_w;
-                let color_at = |p: f32| {
-                    let y = half_h - p / px_h * 2.0 * half_h;
-                    // Rotate the view plane (mid-driven spin).
-                    let (xr, yr) = (x * rc - y * rs, x * rs + y * rc);
-                    // Fast escapes are far from the set: keep them dark so
-                    // the fractal glows out of blackness instead of tinting
-                    // the whole screen.
-                    escape(xr, yr).filter(|&t| t >= 0.06).map(|t| {
-                        theme.bar_color(tri(t * 2.4 + self.color_phase).clamp(0.0, 1.0))
-                    })
-                };
-                let upper = color_at(row as f32 * 2.0 + 0.5);
-                let lower = color_at(row as f32 * 2.0 + 1.5);
+                let (x, y) = (col as f32, row as f32 * 2.0);
+                let (upper, lower) = (pixel(x, y), pixel(x, y + 1.0));
                 put_half_block(&mut buf[(area.x + col, area.y + row)], upper, lower);
             }
         }
