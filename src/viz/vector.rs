@@ -89,14 +89,17 @@ impl Visualizer for Vector {
             // goniometers.
             let x = (r - l) * std::f32::consts::FRAC_1_SQRT_2 * scale;
             let y = (l + r) * std::f32::consts::FRAC_1_SQRT_2 * scale;
-            if x.abs() >= 1.0 || y.abs() >= 1.0 {
+            // Negated so NaN counts as off the plot too.
+            if !(x.abs() < 1.0 && y.abs() < 1.0) {
                 // Off the plot (manual gain, or a peak the scaler hasn't
                 // caught up with). Clamping would draw a false border.
                 clipped += 1;
                 continue;
             }
-            let px = (half + x * half) as usize;
-            let py = (half - y * half) as usize;
+            // `half - y * half` can round up to exactly N for y just above
+            // -1, so cap the index.
+            let px = ((half + x * half) as usize).min(N - 1);
+            let py = ((half - y * half) as usize).min(N - 1);
             let cell = &mut self.field[py * N + px];
             *cell = (*cell + DEPOSIT).min(MAX_DENSITY);
         }
