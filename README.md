@@ -66,7 +66,8 @@ Cycle forward with `v`, backward with `V`:
 - **particles** — starfield: beats fire radial bursts from the center,
   treble drizzles slow drifters.
 - **matrix** — matrix rain where each column is a frequency band: its
-  energy drives the fall speed, glyph churn, and glow.
+  energy drives the fall speed, glyph churn, and glow. Each kick releases a
+  wave of new drops and a brief flash.
 - **radial** — the spectrum wrapped around a pulsing iris, bass at the top
   sweeping symmetrically down to treble.
 - **skyline** — strip-chart of the loudness envelope scrolling right to
