@@ -58,8 +58,9 @@ Cycle forward with `v`, backward with `V`:
   rising-edge trigger; splits into stereo dual-trace when the window is tall.
 - **vector** — vectorscope / goniometer with phosphor persistence: mono
   collapses to the vertical M axis, wide stereo blooms into a cloud.
-- **vu** — two analog VU meters: braille needle on an arc scale with spring
-  ballistics, dB readout, and latching peak LEDs.
+- **vu** — two analog VU meters: braille needle on a -20…+3 VU scale with
+  spring ballistics, a dBFS readout, and peak LEDs that latch when a peak
+  pins the scale. With auto gain, 0 VU tracks the recent loud level.
 - **fire** — demoscene fire stoked by the spectrum: bass roars on the left,
   treble sparks on the right; dies down to embers in silence.
 - **particles** — starfield: beats fire radial bursts from the center,

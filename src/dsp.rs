@@ -87,6 +87,12 @@ impl Agc {
         self.ceil_db = self.ceil_db.clamp(-50.0, 0.0);
     }
 
+    /// Current adaptive ceiling, for render probes.
+    #[cfg(feature = "render")]
+    pub fn ceil_db(&self) -> f32 {
+        self.ceil_db
+    }
+
     /// Map `db` to 0..1 over the `range_db` below the ceiling. Without auto
     /// gain the ceiling is a fixed 0 dBFS; manual gain shifts it either way.
     pub fn norm(&self, db: f32, auto: bool, gain_db: f32, range_db: f32) -> f32 {
