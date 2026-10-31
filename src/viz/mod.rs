@@ -561,4 +561,112 @@ mod tests {
         put_half_block(&mut cell, Some(Color::Red), Some(Color::Blue));
         assert_eq!((cell.symbol(), cell.fg, cell.bg), ("▀", Color::Red, Color::Blue));
     }
+
+    /// Configs at the edges of what `sanitize` allows.
+    fn edge_configs() -> Vec<Config> {
+        use crate::config::MirrorMode;
+        use crate::dsp::BandAgg;
+        let base = Config::default();
+        let variants: [fn(&mut Config); 11] = [
+            |_| {},
+            |c| c.fft_size = 256,
+            |c| c.fft_size = 16384,
+            |c| (c.bars, c.bar_width, c.gap) = (usize::MAX, 8, 4),
+            |c| (c.bars, c.bar_width, c.gap) = (0, 1, 0),
+            |c| (c.gain_db, c.auto_gain) = (30.0, false),
+            |c| (c.gain_db, c.auto_gain, c.peaks) = (-30.0, true, false),
+            |c| (c.freq_min, c.freq_max) = (500.0, 0.0),
+            |c| (c.smoothing, c.band_agg) = (2, BandAgg::Max),
+            |c| {
+                c.scope.window_ms = 1e9;
+                c.spectrogram.slice_ms = 0.0;
+                c.spectrogram.floor = 1.0;
+                c.spectrogram.fade = 1.0;
+                c.radial.spokes = 0;
+                c.fire.cooling = 0.0;
+                c.particles.density = 1e9;
+                c.mirror.mode = MirrorMode::Ms;
+            },
+            |c| {
+                c.gain_db = f32::NAN;
+                c.freq_min = f32::NAN;
+                c.freq_max = f32::NAN;
+                c.scope.window_ms = f32::NAN;
+                c.spectrogram.slice_ms = f32::NAN;
+                c.fire.cooling = f32::NAN;
+                c.particles.density = f32::NAN;
+            },
+        ];
+        variants
+            .iter()
+            .map(|v| {
+                let mut c = base.clone();
+                v(&mut c);
+                c.sanitize();
+                c
+            })
+            .collect()
+    }
+
+    /// Every style through hostile input, configs at their limits and
+    /// every area shape, so a live performance can't hit a panic. Tests
+    /// build in debug, where integer overflow panics too.
+    #[test]
+    fn every_style_survives_hostile_input() {
+        let patterns: [fn(usize) -> f32; 8] = [
+            |_| 0.0,
+            |_| f32::NAN,
+            |_| f32::INFINITY,
+            |i| if i % 2 == 0 { f32::NEG_INFINITY } else { 1e30 },
+            |i| if (i / 50) % 2 == 0 { 1.0 } else { -1.0 },
+            |_| 1.0,
+            |i| ((i as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 40) as f32 / 8e6 - 1.0,
+            |i| (i as f32 * 0.05).sin() * 1e-7,
+        ];
+        let steps: [(u32, f32, bool); 6] = [
+            (48_000, 1.0 / 60.0, false),
+            (0, 1.0 / 60.0, false),
+            (8_000, 0.0, false),
+            (192_000, 1.0, false),
+            (48_000, 1e-6, true),
+            (44_100, 5.0, false),
+        ];
+        let sizes = [
+            (0, 0), (1, 1), (2, 1), (1, 2), (3, 3), (5, 2), (6, 4), (12, 7), (13, 14),
+            (20, 6), (24, 8), (55, 14), (57, 30), (120, 3), (3, 120), (200, 60),
+        ];
+        let mut buf = Buffer::empty(Rect::new(0, 0, 260, 140));
+        for cfg in edge_configs() {
+            let n = cfg.fft_size;
+            for style in STYLES {
+                let mut vis = (style.factory)(&cfg);
+                let mut features = FeatureExtractor::new(&cfg);
+                for (k, pat) in patterns.iter().enumerate() {
+                    let left: Vec<f32> = (0..n).map(pat).collect();
+                    let right: Vec<f32> = (0..n).map(|i| pat(i + 7)).collect();
+                    let mono: Vec<f32> = left.iter().zip(&right).map(|(l, r)| (l + r) * 0.5).collect();
+                    for &(rate, dt, silent) in &steps {
+                        let frame = AudioFrame {
+                            mono: &mono,
+                            left: &left,
+                            right: &right,
+                            rate,
+                            fresh: if dt > 0.5 { usize::MAX } else { (rate as f32 * dt) as usize },
+                            silent,
+                            features: features.update(&cfg, &mono, rate, dt, silent),
+                        };
+                        vis.update(&frame, &cfg, crate::ui::max_bars(&cfg, 260), dt);
+                    }
+                    // Render each pattern's state at a few sizes, all sizes
+                    // for the first, offset inside the buffer.
+                    let picks: Vec<_> = if k == 0 { sizes.to_vec() } else { sizes[..10].to_vec() };
+                    for (w, h) in picks {
+                        let area = Rect::new(7, 5, w, h);
+                        vis.render(area, &mut buf, cfg.theme, &cfg);
+                        vis.render(area, &mut buf, ThemeId::TokyoNight, &cfg);
+                    }
+                }
+            }
+        }
+    }
 }
